@@ -389,12 +389,15 @@ def build_encoder(args):
             masking_radius=masking_radius,
         )
     elif args.enc_type == 'fnet':
-        encoder = FNet(
-            dim=args.enc_dim,
-            depth=args.enc_nlayers,
-            mlp_dim=args.enc_ffn_dim,
-            dropout=args.dropout,
-        )
+        # FNet implementation from https://github.com/erksch/fnet-pytorch
+        # A helpful resource for parameter understanding was https://github.com/rishikksh20/FNet-pytorch
+        encoder = FNet({
+            'fourier': 'matmul',
+            'num_hidden_layers': args.enc_nlayers,
+            'dropout-rate': args.dropout,
+            'hidden_size': args.enc_dim,
+            'intermediate_size': args.enc_ffn_dim,
+        })
     else:
         raise ValueError(f"Unknown encoder type {args.enc_type}")
     return encoder
