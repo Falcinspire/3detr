@@ -15,7 +15,7 @@ from models.transformer import (MaskedTransformerEncoder, TransformerDecoder,
                                 TransformerDecoderLayer, TransformerEncoder,
                                 TransformerEncoderLayer)
 
-from fnet_pytorch.fnet import FNet
+from fnet_pytorch.fnet import FNetEncoder
 
 
 class BoxProcessor(object):
@@ -391,7 +391,7 @@ def build_encoder(args):
     elif args.enc_type == 'fnet':
         # FNet implementation from https://github.com/erksch/fnet-pytorch
         # A helpful resource for parameter understanding was https://github.com/rishikksh20/FNet-pytorch
-        encoder = FNet({
+        encoder = FNetEncoder({
             'fourier': 'matmul',
             'num_hidden_layers': args.enc_nlayers,
             'dropout_rate': args.dropout,
