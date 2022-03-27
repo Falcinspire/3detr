@@ -15,6 +15,8 @@ from models.transformer import (MaskedTransformerEncoder, TransformerDecoder,
                                 TransformerDecoderLayer, TransformerEncoder,
                                 TransformerEncoderLayer)
 
+from fnet_pytorch.fnet import FNet
+
 
 class BoxProcessor(object):
     """
@@ -385,6 +387,13 @@ def build_encoder(args):
             num_layers=3,
             interim_downsampling=interim_downsampling,
             masking_radius=masking_radius,
+        )
+    elif args.enc_type == 'fnet':
+        encoder = FNet(
+            dim=args.enc_dim,
+            depth=args.enc_nlayers,
+            mlp_dim=args.enc_ffn_dim,
+            dropout=args.dropout,
         )
     else:
         raise ValueError(f"Unknown encoder type {args.enc_type}")
