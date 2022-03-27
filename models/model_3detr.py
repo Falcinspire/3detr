@@ -394,7 +394,7 @@ def build_encoder(args):
         encoder = FNet({
             'fourier': 'matmul',
             'num_hidden_layers': args.enc_nlayers,
-            'dropout-rate': args.dropout,
+            'dropout_rate': args.dropout,
             'hidden_size': args.enc_dim,
             'intermediate_size': args.enc_ffn_dim,
         })
