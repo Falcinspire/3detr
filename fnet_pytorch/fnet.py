@@ -1,9 +1,11 @@
 # source: https://github.com/erksch/fnet-pytorch/blob/master/fnet.py
 # source license: MIT
+from typing import Optional
 
 import re
 import torch
 import torch.utils.checkpoint
+from torch import Tensor, nn
 from scipy import linalg
 from torch import nn
 
@@ -91,6 +93,20 @@ class FNetLayer(nn.Module):
         output = self.output_layer_norm(output + fft_output)
         return output
 
+class Model3DETRFNetEncoderAdapter(nn.Module):
+    def __init__(self, config):
+        super().__init__()
+        self.encoder = FNetEncoder(config)
+
+    #TODO can these other arguments really just be ignored?
+    def forward(self, src,
+                mask: Optional[Tensor] = None,
+                src_key_padding_mask: Optional[Tensor] = None,
+                pos: Optional[Tensor] = None,
+                xyz: Optional [Tensor] = None,
+                transpose_swap: Optional[bool] = False,
+                ):
+        return xyz, self.encoder(src), None
 
 class FNetEncoder(nn.Module):
     def __init__(self, config):

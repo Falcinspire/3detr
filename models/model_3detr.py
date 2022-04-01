@@ -15,7 +15,7 @@ from models.transformer import (MaskedTransformerEncoder, TransformerDecoder,
                                 TransformerDecoderLayer, TransformerEncoder,
                                 TransformerEncoderLayer)
 
-from fnet_pytorch.fnet import FNetEncoder
+from fnet_pytorch.fnet import Model3DETRFNetEncoderAdapter
 
 
 class BoxProcessor(object):
@@ -391,12 +391,14 @@ def build_encoder(args):
     elif args.enc_type == 'fnet':
         # FNet implementation from https://github.com/erksch/fnet-pytorch
         # A helpful resource for parameter understanding was https://github.com/rishikksh20/FNet-pytorch
-        encoder = FNetEncoder({
-            'fourier': 'matmul',
+        encoder = Model3DETRFNetEncoderAdapter({
+            'fourier': 'fourier', #TODO switch to 'matmul'
             'num_hidden_layers': args.enc_nlayers,
-            'dropout_rate': args.dropout,
+            'dropout_rate': args.enc_dropout,
             'hidden_size': args.enc_dim,
             'intermediate_size': args.enc_ffn_dim,
+            'max_position_embeddings': 4096, # this is a guess rn, I believe this is supposed to be max_seq_length from https://github.com/google-research/google-research/blob/94ef1c5992057967305cef6cbdd94ab995191279/f_net/models.py#L148
+            'layer_norm_eps': 1e-12, # this is a guess rn, I believe this is the constant from https://github.com/google-research/google-research/blob/94ef1c5992057967305cef6cbdd94ab995191279/f_net/models.py#L44
         })
     else:
         raise ValueError(f"Unknown encoder type {args.enc_type}")
