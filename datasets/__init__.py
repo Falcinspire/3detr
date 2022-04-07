@@ -1,4 +1,5 @@
 # Copyright (c) Facebook, Inc. and its affiliates.
+from .kitti import KITTI3DObjectDetectionDataset, KITTI3DObjectDetectionDatasetConfig
 from .scannet import ScannetDetectionDataset, ScannetDatasetConfig
 from .sunrgbd import SunrgbdDetectionDataset, SunrgbdDatasetConfig
 
@@ -6,8 +7,8 @@ from .sunrgbd import SunrgbdDetectionDataset, SunrgbdDatasetConfig
 DATASET_FUNCTIONS = {
     "scannet": [ScannetDetectionDataset, ScannetDatasetConfig],
     "sunrgbd": [SunrgbdDetectionDataset, SunrgbdDatasetConfig],
+    "kitti": [KITTI3DObjectDetectionDataset, KITTI3DObjectDetectionDatasetConfig]
 }
-
 
 def build_dataset(args):
     dataset_builder = DATASET_FUNCTIONS[args.dataset_name][0]
