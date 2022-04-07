@@ -47,7 +47,7 @@ def make_args_parser():
     )
     ### Encoder
     parser.add_argument(
-        "--enc_type", default="vanilla", choices=["masked", "maskedv2", "fnet", "vanilla"]
+        "--enc_type", default="vanilla", choices=["masked", "maskedv2", "fnet", "none", "vanilla"]
     )
     # Below options are only valid for vanilla encoder
     parser.add_argument("--enc_nlayers", default=3, type=int)

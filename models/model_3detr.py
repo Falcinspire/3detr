@@ -16,7 +16,7 @@ from models.transformer import (MaskedTransformerEncoder, TransformerDecoder,
                                 TransformerEncoderLayer)
 
 from fnet_pytorch.fnet import Model3DETRFNetEncoderAdapter
-
+from fnet_pytorch.nnet import NoEncoder
 
 class BoxProcessor(object):
     """
@@ -400,6 +400,8 @@ def build_encoder(args):
             'max_position_embeddings': 4096, # this is a guess rn, I believe this is supposed to be max_seq_length from https://github.com/google-research/google-research/blob/94ef1c5992057967305cef6cbdd94ab995191279/f_net/models.py#L148
             'layer_norm_eps': 1e-12, # this is a guess rn, I believe this is the constant from https://github.com/google-research/google-research/blob/94ef1c5992057967305cef6cbdd94ab995191279/f_net/models.py#L44
         })
+    elif args.enc_type == 'none':
+        encoder = NoEncoder()
     else:
         raise ValueError(f"Unknown encoder type {args.enc_type}")
     return encoder
