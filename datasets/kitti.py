@@ -20,8 +20,8 @@ Date: 2019
 
 -----
 
-Again modified by Ryan Glaspey
-
+Again modified by: Ryan Glaspey
+Date: 2022
 """
 from cmath import pi
 import os
@@ -67,31 +67,41 @@ def angle_between(v1, v2):
 
 class KITTI3DObjectDetectionDatasetConfig(object):
     def __init__(self):
-        self.num_semcls = 10
+        self.num_semcls = 3
         self.num_angle_bin = 12
         self.max_num_obj = 64
         self.type2class = {
-            "DontCare": 0, #TODO should this be 0?
-            "Car": 1,
-            "Van": 2,
-            "Truck": 3,
-            "Pedestrian": 4,
-            "Person_sitting": 5,
-            "Cyclist": 6,
-            "Tram": 7,
-            "Misc": 8,
+            "Car": 0,
+            "Pedestrian": 1,
+            "Cyclist": 2,
         }
+        # self.type2class = {
+        #     "DontCare": 0, #TODO should this be 0?
+        #     "Car": 1,
+        #     "Van": 2,
+        #     "Truck": 3,
+        #     "Pedestrian": 4,
+        #     "Person_sitting": 5,
+        #     "Cyclist": 6,
+        #     "Tram": 7,
+        #     "Misc": 8,
+        # }
         self.class2type = {self.type2class[t]: t for t in self.type2class}
+        # self.type2onehotclass = {
+        #     "DontCare": 0, #TODO should this be 0?
+        #     "Car": 1,
+        #     "Van": 2,
+        #     "Truck": 3,
+        #     "Pedestrian": 4,
+        #     "Person_sitting": 5,
+        #     "Cyclist": 6,
+        #     "Tram": 7,
+        #     "Misc": 8,
+        # }
         self.type2onehotclass = {
-            "DontCare": 0, #TODO should this be 0?
-            "Car": 1,
-            "Van": 2,
-            "Truck": 3,
-            "Pedestrian": 4,
-            "Person_sitting": 5,
-            "Cyclist": 6,
-            "Tram": 7,
-            "Misc": 8,
+            "Car": 0,
+            "Pedestrian": 1,
+            "Cyclist": 2,
         }
 
     def angle2class(self, angle):
@@ -170,14 +180,16 @@ class KITTI3DObjectDetectionDataset(Dataset):
         num_points=20000,
     ):
         assert num_points <= 50000
-        assert augment == False
-        assert split_set in ["train", "test"]
+        # assert augment == False
+        assert split_set in ["train", "val"]
         self.dataset_config = dataset_config
 
         assert root_dir != None
 
-        split_set_folder = 'training' if split_set == 'train' else 'testing'
-        self.data_path = os.path.join(root_dir, split_set_folder)
+        #TODO refactor and improve splitting
+        self.data_path = os.path.join(root_dir, "training")
+        all_ids = [f[:-len('.txt')] for f in os.listdir(os.path.join(self.data_path, 'velodyne'))]
+        self.ids = all_ids[:4000] if split_set == 'train' else all_ids[4000:]
 
         self.num_points = num_points
         self.center_normalizing_range = [
@@ -187,14 +199,16 @@ class KITTI3DObjectDetectionDataset(Dataset):
         self.max_num_obj = 64
 
     def __len__(self):
-        return len(self.scan_names)
+        return len(self.ids)
 
     def __getitem__(self, idx):
-        string_id = f'{idx:06d}'
+        string_id = self.ids[idx]
 
         point_cloud = load_velo_scan(os.path.join(self.data_path, 'velodyne', f'{string_id}.bin'))[:, 0:3]
         calib = Calibration(os.path.join(self.data_path, 'calib', f'{string_id}.txt'))
         objects = read_label(os.path.join(self.data_path, 'label_2', f'{string_id}.txt'))
+        # Only use objects of classes with enough data
+        objects = [object for object in objects if object.type in ['Car', 'Pedestrian', 'Cyclist']]
 
         bboxes = []
         _og_bboxes = []
@@ -223,11 +237,10 @@ class KITTI3DObjectDetectionDataset(Dataset):
             ])
 
             width, length, height = (new_bbox[3] - new_bbox[0]) / 2, (new_bbox[4] - new_bbox[1]) / 2, (new_bbox[5] - new_bbox[2]) / 2
-            print(idx, _og_bboxes[-1])
             bboxes.append(np.array([
                 new_bbox[0] + width, new_bbox[1] + length, new_bbox[2] + height,
                 width, length, height,
-                angle, #TODO 2pi - angle?
+                angle,
                 self.dataset_config.type2class[object.type],
             ]))
 
@@ -258,7 +271,6 @@ class KITTI3DObjectDetectionDataset(Dataset):
             corners_3d = self.dataset_config.my_compute_box_3d(
                 bbox[0:3], bbox[3:6], bbox[6]
             )
-            print(i, corners_3d)
             # compute axis aligned box
             xmin = np.min(corners_3d[:, 0])
             ymin = np.min(corners_3d[:, 1])
@@ -326,7 +338,7 @@ class KITTI3DObjectDetectionDataset(Dataset):
             np.float32
         )
         target_bboxes_semcls = np.zeros((self.max_num_obj))
-        target_bboxes_semcls[0 : bboxes.shape[0]] = bboxes[:, -1]  # from 0 to 9
+        target_bboxes_semcls[0 : bboxes.shape[0]] = bboxes[:, -1]  # from 0 to 8
         ret_dict["gt_box_sem_cls_label"] = target_bboxes_semcls.astype(np.int64)
         ret_dict["gt_box_present"] = target_bboxes_mask.astype(np.float32)
         ret_dict["scan_idx"] = np.array(idx).astype(np.int64)
@@ -339,9 +351,9 @@ class KITTI3DObjectDetectionDataset(Dataset):
         ret_dict["point_cloud_dims_max"] = point_cloud_dims_max
 
         #TODO remove
-        ret_dict["_testing"] = [self.dataset_config.my_compute_box_3d(
-                bbox[0:3], bbox[3:6], bbox[6]
-            ) for bbox in bboxes]
-        ret_dict["_verification"] = _og_bboxes
-        ret_dict["_intermediate"] = _intermediate_boxes
+        # ret_dict["_testing"] = [self.dataset_config.my_compute_box_3d(
+        #         bbox[0:3], bbox[3:6], bbox[6]
+        #     ) for bbox in bboxes]
+        # ret_dict["_verification"] = _og_bboxes
+        # ret_dict["_intermediate"] = _intermediate_boxes
         return ret_dict
