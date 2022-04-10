@@ -178,7 +178,7 @@ class KITTI3DObjectDetectionDataset(Dataset):
         root_dir=None,
         augment=False,
         num_points=20000,
-        clip_size=4,
+        # clip_size=4,
     ):
         assert num_points <= 50000
         # assert augment == False
@@ -187,33 +187,25 @@ class KITTI3DObjectDetectionDataset(Dataset):
 
         assert root_dir != None
 
-        assert clip_size >= 1
+        # assert clip_size >= 1
 
-        self.clip_size = clip_size
+        # self.clip_size = clip_size
 
         #TODO refactor and improve splitting
+        self.root_dir = root_dir
         self.data_path = os.path.join(root_dir, "training")
         all_ids = [(f[:-len('.txt')], idx) for idx, f in enumerate(os.listdir(os.path.join(self.data_path, 'velodyne')))]
         self.ids = all_ids[:4000] if split_set == 'train' else all_ids[4000:]
 
         # Copy the raw KITTI dataset into a /raw folder of the KITTI Object Detection benchmark
-        indices_for_mappings = None
-        with open(os.path.join(root_dir, 'mapping', 'train_rand.txt'), 'r') as inp:
-            indices_for_mappings = [int(value)-1 for value in inp.read().split(',')]
-        raw_mapping_lines = None
-        with open(os.path.join(root_dir, 'mapping', 'train_mapping.txt'), 'r') as inp:
-            raw_mapping_lines = [line.split(' ') for line in inp]
-        mappings_to_raw = [(os.path.join(line[0], f'{line[1]}_sync', 'velodyne_points', 'data'), int(line[2])) for line in raw_mapping_lines]
-        self.raw_mapping = [mappings_to_raw[index] for index in indices_for_mappings]
-
-        if True:
-            raw_mapping_dir, raw_mapping_id = self.raw_mapping[0]
-            print(raw_mapping_dir, raw_mapping_id)
-            print(os.path.join(self.data_path, 'raw', raw_mapping_dir, f'{max(0, raw_mapping_id-i):06d}') for i in range(self.clip_size))
-            point_cloud_clip = [load_velo_scan(os.path.join(self.data_path, 'raw', raw_mapping_dir, f'{max(0, raw_mapping_id-i):06d}')) for i in range(self.clip_size)]
-            for point_cloud_i in point_cloud_clip:
-                print(point_cloud_i.shape)
-
+        # indices_for_mappings = None
+        # with open(os.path.join(root_dir, 'mapping', 'train_rand.txt'), 'r') as inp:
+        #     indices_for_mappings = [int(value)-1 for value in inp.read().split(',')]
+        # raw_mapping_lines = None
+        # with open(os.path.join(root_dir, 'mapping', 'train_mapping.txt'), 'r') as inp:
+        #     raw_mapping_lines = [line.split(' ') for line in inp]
+        # mappings_to_raw = [(os.path.join(root_dir, 'raw', line[0], f'{line[1]}', 'velodyne_points', 'data'), int(line[2])) for line in raw_mapping_lines]
+        # self.raw_mapping = [mappings_to_raw[index] for index in indices_for_mappings]
 
         self.num_points = num_points
         self.center_normalizing_range = [
@@ -235,7 +227,7 @@ class KITTI3DObjectDetectionDataset(Dataset):
         objects = [object for object in objects if object.type in ['Car', 'Pedestrian', 'Cyclist']]
 
         # raw_mapping_dir, raw_mapping_id = self.raw_mapping[raw_mapping_id]
-        # point_cloud_clip = [load_velo_scan(os.path.join(self.data_path, 'raw', raw_mapping_dir, f'{max(0, raw_mapping_id-i):06d}')) for i in range(self.clip_size)]
+        # point_cloud_clip = [load_velo_scan(os.path.join(raw_mapping_dir, f'{max(0, raw_mapping_id-i):010d}.bin')) for i in range(self.clip_size)]
         # for point_cloud_i in point_cloud_clip:
         #     print(point_cloud_i.shape)
         # point_cloud = point_cloud_clip[0]
