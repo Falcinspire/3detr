@@ -207,6 +207,7 @@ class KITTI3DObjectDetectionDataset(Dataset):
         # mappings_to_raw = [(os.path.join(root_dir, 'raw', line[0], f'{line[1]}', 'velodyne_points', 'data'), int(line[2])) for line in raw_mapping_lines]
         # self.raw_mapping = [mappings_to_raw[index] for index in indices_for_mappings]
 
+        self.augment = augment
         self.num_points = num_points
         self.center_normalizing_range = [
             np.zeros((1, 3), dtype=np.float32),
@@ -267,6 +268,37 @@ class KITTI3DObjectDetectionDataset(Dataset):
             ]))
 
         bboxes = np.array(bboxes)
+
+        # ------------------------------- DATA AUGMENTATION ------------------------------
+        if self.augment:
+            if np.random.random() > 0.5:
+                # Flipping along the YZ plane
+                point_cloud[:, 0] = -1 * point_cloud[:, 0]
+                bboxes[:, 0] = -1 * bboxes[:, 0]
+                bboxes[:, 6] = np.pi - bboxes[:, 6]
+
+            # Rotation along up-axis/Z-axis
+            rot_angle = (np.random.random() * np.pi / 3) - np.pi / 6  # -30 ~ +30 degree
+            rot_mat = pc_util.rotz(rot_angle)
+
+            point_cloud[:, 0:3] = np.dot(point_cloud[:, 0:3], np.transpose(rot_mat))
+            bboxes[:, 0:3] = np.dot(bboxes[:, 0:3], np.transpose(rot_mat))
+            bboxes[:, 6] -= rot_angle
+
+            # Augment point cloud scale: 0.85x-1.15x
+            scale_ratio = np.random.random() * 0.3 + 0.85
+            scale_ratio = np.expand_dims(np.tile(scale_ratio, 3), 0)
+            point_cloud[:, 0:3] *= scale_ratio
+            bboxes[:, 0:3] *= scale_ratio
+            bboxes[:, 3:6] *= scale_ratio
+
+            if self.use_height:
+                point_cloud[:, -1] *= scale_ratio[0, 0]
+
+            if self.use_random_cuboid:
+                point_cloud, bboxes, _ = self.random_cuboid_augmentor(
+                    point_cloud, bboxes
+                )
 
         # ------------------------------- LABELS ------------------------------
         angle_classes = np.zeros((self.max_num_obj,), dtype=np.float32)
