@@ -396,9 +396,9 @@ def build_encoder(args):
             'hidden_size': args.enc_dim,
             'intermediate_size': args.enc_ffn_dim,
             'dropout_rate': args.enc_dropout,
-            'max_position_embeddings': 4096, # this is a guess rn, I believe this is supposed to be max_seq_length from https://github.com/google-research/google-research/blob/94ef1c5992057967305cef6cbdd94ab995191279/f_net/models.py#L148
-            'layer_norm_eps': 1e-12, # this is a guess rn, I believe this is the constant from https://github.com/google-research/google-research/blob/94ef1c5992057967305cef6cbdd94ab995191279/f_net/models.py#L44
-            'fourier': 'fourier', #TODO switch to 'matmul'
+            'max_position_embeddings': args.preenc_npoints, #see https://github.com/google-research/google-research/blob/94ef1c5992057967305cef6cbdd94ab995191279/f_net/models.py#L148
+            'layer_norm_eps': 1e-12, #see https://github.com/google-research/google-research/blob/94ef1c5992057967305cef6cbdd94ab995191279/f_net/models.py#L44
+            'fourier': 'matmul',
         })
     elif args.enc_type == 'none':
         encoder = NoEncoder()
