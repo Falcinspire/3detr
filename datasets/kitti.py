@@ -30,6 +30,7 @@ import numpy as np
 from torch.utils.data import Dataset
 import scipy.io as sio  # to load .mat files for depth points
 from sklearn.model_selection import train_test_split
+import tarfile
 
 import utils.pc_util as pc_util
 from utils.random_cuboid import RandomCuboid
@@ -169,7 +170,17 @@ class KITTI3DObjectDetectionDatasetConfig(object):
         corners_3d[2, :] += center[2]
         return np.transpose(corners_3d)
 
-#TODO data augmentation, add transforms param? naw just do it inline
+
+def load_velo_scans_from_compressed(file_path, local_paths):
+    velo_scans = []
+    with tarfile.open(file_path, "r:gz") as targz:
+        for local_path in local_paths:
+            with targz.extractfile(local_path) as velo_file:
+                scan = np.frombuffer(velo_file.read(), dtype=np.float32)
+                scan = scan.reshape((-1, 4))
+                velo_scans.append(scan)
+    return velo_scans
+
 class KITTI3DObjectDetectionDataset(Dataset):
     def __init__(
         self,
@@ -181,7 +192,7 @@ class KITTI3DObjectDetectionDataset(Dataset):
         num_points=50000,
         use_random_cuboid=True,
         random_cuboid_min_points=30000,
-        # clip_size=4,
+        clip_size=4,
     ):
         assert num_points <= 50000
         # assert augment == False
@@ -190,9 +201,8 @@ class KITTI3DObjectDetectionDataset(Dataset):
 
         assert root_dir != None
 
-        # assert clip_size >= 1
+        assert clip_size >= 1
 
-        # self.clip_size = clip_size
 
         #TODO refactor and improve splitting
         self.root_dir = root_dir
@@ -208,17 +218,18 @@ class KITTI3DObjectDetectionDataset(Dataset):
         for a, b in zip(self.ids, self.labels):
             assert a[0] == b
 
-        # Copy the raw KITTI dataset into a /raw folder of the KITTI Object Detection benchmark
-        # indices_for_mappings = None
-        # with open(os.path.join(root_dir, 'mapping', 'train_rand.txt'), 'r') as inp:
-        #     indices_for_mappings = [int(value)-1 for value in inp.read().split(',')]
-        # raw_mapping_lines = None
-        # with open(os.path.join(root_dir, 'mapping', 'train_mapping.txt'), 'r') as inp:
-        #     raw_mapping_lines = [line.split(' ') for line in inp]
-        # mappings_to_raw = [(os.path.join(root_dir, 'raw', line[0], f'{line[1]}', 'velodyne_points', 'data'), int(line[2])) for line in raw_mapping_lines]
-        # self.raw_mapping = [mappings_to_raw[index] for index in indices_for_mappings]
+        # TODO setup instructions for compressed raw dataset
+        indices_for_mappings = None
+        with open(os.path.join(root_dir, 'mapping', 'train_rand.txt'), 'r') as inp:
+            indices_for_mappings = [int(value)-1 for value in inp.read().split(',')]
+        raw_mapping_lines = None
+        with open(os.path.join(root_dir, 'mapping', 'train_mapping.txt'), 'r') as inp:
+            raw_mapping_lines = [line.split(' ') for line in inp]
+        mappings_to_raw = [(os.path.join(root_dir, 'raw', line[0], f'{line[1]}.tar.gz'), './velodyne_points/data', int(line[2])) for line in raw_mapping_lines]
+        self.raw_mapping = [mappings_to_raw[index] for index in indices_for_mappings]
 
         self.num_points = num_points
+        self.clip_size = clip_size
         self.augment = augment
         self.use_height = use_height
         self.use_random_cuboid = use_random_cuboid
@@ -247,10 +258,9 @@ class KITTI3DObjectDetectionDataset(Dataset):
         # Only use objects of classes with enough data
         objects = [object for object in objects if object.type in self.dataset_config.type2class.keys()]
 
-        # raw_mapping_dir, raw_mapping_id = self.raw_mapping[raw_mapping_id]
-        # point_cloud_clip = [load_velo_scan(os.path.join(raw_mapping_dir, f'{max(0, raw_mapping_id-i):010d}.bin')) for i in range(self.clip_size)]
-        # for point_cloud_i in point_cloud_clip:
-        #     print(point_cloud_i.shape)
+        raw_mapping_zip, raw_mapping_path, raw_mapping_id = self.raw_mapping[raw_mapping_id]
+        # see kitti_util.load_velo_scan
+        # point_cloud_clip = load_velo_scans_from_compressed(raw_mapping_zip, [os.path.join(raw_mapping_path, f'{max(0, raw_mapping_id-i):010d}.bin') for i in range(self.clip_size)])
         # point_cloud = point_cloud_clip[0]
 
         bboxes = []
