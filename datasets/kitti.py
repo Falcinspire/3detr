@@ -29,6 +29,8 @@ import sys
 import numpy as np
 from torch.utils.data import Dataset
 import scipy.io as sio  # to load .mat files for depth points
+from sklearn.model_selection import train_test_split
+import tarfile
 
 import utils.pc_util as pc_util
 from utils.random_cuboid import RandomCuboid
@@ -39,9 +41,7 @@ from utils.box_util import (
     flip_axis_to_camera_np,
     get_3d_box_batch_np,
 )
-import pandas as pd
 from datasets.kitti_util import Calibration, compute_box_3d, load_velo_scan, read_label
-
 
 MEAN_COLOR_RGB = np.array([0.5, 0.5, 0.5])  # sunrgbd color is in 0~1
 DATA_PATH_V1 = "" ## Replace with path to dataset
@@ -170,15 +170,17 @@ class KITTI3DObjectDetectionDatasetConfig(object):
         corners_3d[2, :] += center[2]
         return np.transpose(corners_3d)
 
-#TODO data augmentation, add transforms param? naw just do it inline
 class KITTI3DObjectDetectionDataset(Dataset):
     def __init__(
         self,
         dataset_config,
         split_set="train",
         root_dir=None,
+        use_height=False,
         augment=False,
-        num_points=20000,
+        num_points=50000,
+        use_random_cuboid=True,
+        random_cuboid_min_points=30000,
     ):
         assert num_points <= 50000
         # assert augment == False
@@ -188,21 +190,29 @@ class KITTI3DObjectDetectionDataset(Dataset):
         assert root_dir != None
 
         #TODO refactor and improve splitting
+        self.root_dir = root_dir
         self.data_path = os.path.join(root_dir, "training")
-        all_ids = [(f[:-len('.txt')], idx) for idx, f in enumerate(os.listdir(os.path.join(self.data_path, 'velodyne')))]
-        self.ids = all_ids[:4000] if split_set == 'train' else all_ids[4000:]
+        velodyne_files = os.listdir(os.path.join(self.data_path, 'velodyne'))
+        all_ids = [(f[:-len('.txt')], idx) for idx, f in enumerate(velodyne_files)]
+        all_labels = [f[:-len('.txt')] for f in velodyne_files]
 
-        indices_for_mappings = None
-        with open(os.path.join(root_dir, 'mapping', 'train_rand.txt'), 'r') as inp:
-            indices_for_mappings = [int(value)-1 for value in inp.read().split(',')]
-        raw_mapping_lines = None
-        with open(os.path.join(root_dir, 'mapping', 'train_mapping.txt'), 'r') as inp:
-            raw_mapping_lines = [line.split(' ') for line in inp]
-        mappings_to_raw = [(os.path.join(line[0], f'{line[1]}_sync', 'velodyne_points', 'data'), int(line[2])) for line in raw_mapping_lines]
-        self.raw_mapping = [mappings_to_raw[index] for index in indices_for_mappings]
-        print(self.raw_mapping[0])
+        x_train, x_validate, y_train, y_validate = train_test_split(all_ids, all_labels, test_size=0.25, random_state=612932)
+        self.ids = x_train if split_set == 'train' else x_validate
+        self.labels = y_train if split_set == 'train' else y_validate
+
+        for a, b in zip(self.ids, self.labels):
+            assert a[0] == b
 
         self.num_points = num_points
+        self.augment = augment
+        self.use_height = use_height
+        self.use_random_cuboid = use_random_cuboid
+        self.random_cuboid_augmentor = RandomCuboid(
+            min_points=random_cuboid_min_points,
+            aspect=0.75,
+            min_crop=0.75,
+            max_crop=1.0,
+        )
         self.center_normalizing_range = [
             np.zeros((1, 3), dtype=np.float32),
             np.ones((1, 3), dtype=np.float32),
@@ -213,13 +223,14 @@ class KITTI3DObjectDetectionDataset(Dataset):
         return len(self.ids)
 
     def __getitem__(self, idx):
-        string_id = self.ids[idx][0]
+        string_id, raw_mapping_id = self.ids[idx]
+        label_id = self.labels[idx]
 
         point_cloud = load_velo_scan(os.path.join(self.data_path, 'velodyne', f'{string_id}.bin'))[:, 0:3]
         calib = Calibration(os.path.join(self.data_path, 'calib', f'{string_id}.txt'))
-        objects = read_label(os.path.join(self.data_path, 'label_2', f'{string_id}.txt'))
+        objects = read_label(os.path.join(self.data_path, 'label_2', f'{label_id}.txt'))
         # Only use objects of classes with enough data
-        objects = [object for object in objects if object.type in ['Car', 'Pedestrian', 'Cyclist']]
+        objects = [object for object in objects if object.type in self.dataset_config.type2class.keys()]
 
         bboxes = []
         _og_bboxes = []
@@ -256,6 +267,37 @@ class KITTI3DObjectDetectionDataset(Dataset):
             ]))
 
         bboxes = np.array(bboxes)
+
+        # ------------------------------- DATA AUGMENTATION ------------------------------
+        if self.augment:
+            if np.random.random() > 0.5:
+                # Flipping along the YZ plane
+                point_cloud[:, 0] = -1 * point_cloud[:, 0]
+                bboxes[:, 0] = -1 * bboxes[:, 0]
+                bboxes[:, 6] = np.pi - bboxes[:, 6]
+
+            # Rotation along up-axis/Z-axis
+            rot_angle = (np.random.random() * np.pi / 3) - np.pi / 6  # -30 ~ +30 degree
+            rot_mat = pc_util.rotz(rot_angle)
+
+            point_cloud[:, 0:3] = np.dot(point_cloud[:, 0:3], np.transpose(rot_mat))
+            bboxes[:, 0:3] = np.dot(bboxes[:, 0:3], np.transpose(rot_mat))
+            bboxes[:, 6] -= rot_angle
+
+            # Augment point cloud scale: 0.85x-1.15x
+            scale_ratio = np.random.random() * 0.3 + 0.85
+            scale_ratio = np.expand_dims(np.tile(scale_ratio, 3), 0)
+            point_cloud[:, 0:3] *= scale_ratio
+            bboxes[:, 0:3] *= scale_ratio
+            bboxes[:, 3:6] *= scale_ratio
+
+            if self.use_height:
+                point_cloud[:, -1] *= scale_ratio[0, 0]
+
+            if self.use_random_cuboid:
+                point_cloud, bboxes, _ = self.random_cuboid_augmentor(
+                    point_cloud, bboxes
+                )
 
         # ------------------------------- LABELS ------------------------------
         angle_classes = np.zeros((self.max_num_obj,), dtype=np.float32)

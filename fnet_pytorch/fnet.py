@@ -54,13 +54,17 @@ class FourierMMLayer(nn.Module):
         self.dft_mat_hidden = torch.tensor(linalg.dft(config['hidden_size']))
 
     def forward(self, hidden_states):
+        self.dft_mat_seq = self.dft_mat_seq.to(hidden_states.device)
+        self.dft_mat_hidden = self.dft_mat_hidden.to(hidden_states.device)
+
         hidden_states_complex = hidden_states.type(torch.complex128)
+        hidden_states_complex = hidden_states_complex.permute((1, 0, 2))
         return torch.einsum(
             "...ij,...jk,...ni->...nk",
             hidden_states_complex,
             self.dft_mat_hidden,
             self.dft_mat_seq
-        ).real.type(torch.float32)
+        ).real.type(torch.float32).permute((1, 0, 2))
 
 
 class FourierFFTLayer(nn.Module):
