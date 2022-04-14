@@ -29,6 +29,7 @@ import sys
 import numpy as np
 from torch.utils.data import Dataset
 import scipy.io as sio  # to load .mat files for depth points
+from sklearn.model_selection import train_test_split
 
 import utils.pc_util as pc_util
 from utils.random_cuboid import RandomCuboid
@@ -40,7 +41,6 @@ from utils.box_util import (
     get_3d_box_batch_np,
 )
 from datasets.kitti_util import Calibration, compute_box_3d, load_velo_scan, read_label
-
 
 MEAN_COLOR_RGB = np.array([0.5, 0.5, 0.5])  # sunrgbd color is in 0~1
 DATA_PATH_V1 = "" ## Replace with path to dataset
@@ -197,8 +197,16 @@ class KITTI3DObjectDetectionDataset(Dataset):
         #TODO refactor and improve splitting
         self.root_dir = root_dir
         self.data_path = os.path.join(root_dir, "training")
-        all_ids = [(f[:-len('.txt')], idx) for idx, f in enumerate(os.listdir(os.path.join(self.data_path, 'velodyne')))]
-        self.ids = all_ids[:4000] if split_set == 'train' else all_ids[4000:]
+        velodyne_files = os.listdir(os.path.join(self.data_path, 'velodyne'))
+        all_ids = [(f[:-len('.txt')], idx) for idx, f in enumerate(velodyne_files)]
+        all_labels = [f[:-len('.txt')] for f in velodyne_files]
+
+        x_train, x_validate, y_train, y_validate = train_test_split(all_ids, all_labels, test_size=0.25, random_state=612932)
+        self.ids = x_train if split_set == 'train' else x_validate
+        self.labels = y_train if split_set == 'train' else y_validate
+
+        for a, b in zip(self.ids, self.labels):
+            assert a[0] == b
 
         # Copy the raw KITTI dataset into a /raw folder of the KITTI Object Detection benchmark
         # indices_for_mappings = None
@@ -231,10 +239,11 @@ class KITTI3DObjectDetectionDataset(Dataset):
 
     def __getitem__(self, idx):
         string_id, raw_mapping_id = self.ids[idx]
+        label_id = self.labels[idx]
 
         point_cloud = load_velo_scan(os.path.join(self.data_path, 'velodyne', f'{string_id}.bin'))[:, 0:3]
         calib = Calibration(os.path.join(self.data_path, 'calib', f'{string_id}.txt'))
-        objects = read_label(os.path.join(self.data_path, 'label_2', f'{string_id}.txt'))
+        objects = read_label(os.path.join(self.data_path, 'label_2', f'{label_id}.txt'))
         # Only use objects of classes with enough data
         objects = [object for object in objects if object.type in self.dataset_config.type2class.keys()]
 
