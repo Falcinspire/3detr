@@ -176,8 +176,11 @@ class KITTI3DObjectDetectionDataset(Dataset):
         dataset_config,
         split_set="train",
         root_dir=None,
+        use_height=False,
         augment=False,
-        num_points=20000,
+        num_points=50000,
+        use_random_cuboid=True,
+        random_cuboid_min_points=30000,
         # clip_size=4,
     ):
         assert num_points <= 50000
@@ -207,8 +210,16 @@ class KITTI3DObjectDetectionDataset(Dataset):
         # mappings_to_raw = [(os.path.join(root_dir, 'raw', line[0], f'{line[1]}', 'velodyne_points', 'data'), int(line[2])) for line in raw_mapping_lines]
         # self.raw_mapping = [mappings_to_raw[index] for index in indices_for_mappings]
 
-        self.augment = augment
         self.num_points = num_points
+        self.augment = augment
+        self.use_height = use_height
+        self.use_random_cuboid = use_random_cuboid
+        self.random_cuboid_augmentor = RandomCuboid(
+            min_points=random_cuboid_min_points,
+            aspect=0.75,
+            min_crop=0.75,
+            max_crop=1.0,
+        )
         self.center_normalizing_range = [
             np.zeros((1, 3), dtype=np.float32),
             np.ones((1, 3), dtype=np.float32),
@@ -225,7 +236,7 @@ class KITTI3DObjectDetectionDataset(Dataset):
         calib = Calibration(os.path.join(self.data_path, 'calib', f'{string_id}.txt'))
         objects = read_label(os.path.join(self.data_path, 'label_2', f'{string_id}.txt'))
         # Only use objects of classes with enough data
-        objects = [object for object in objects if object.type in ['Car', 'Pedestrian', 'Cyclist']]
+        objects = [object for object in objects if object.type in self.dataset_config.type2class.keys()]
 
         # raw_mapping_dir, raw_mapping_id = self.raw_mapping[raw_mapping_id]
         # point_cloud_clip = [load_velo_scan(os.path.join(raw_mapping_dir, f'{max(0, raw_mapping_id-i):010d}.bin')) for i in range(self.clip_size)]
