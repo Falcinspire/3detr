@@ -173,14 +173,14 @@ class Model3DETR(nn.Module):
 
     # Shape of prev_detections = b x N x 3
     def get_query_embeddings(self, encoder_xyz, point_cloud_dims, prev_detections=None):
-        query_inds = furthest_point_sample(encoder_xyz, self.num_queries)
+        n_new_queries = self.num_queries if prev_detections is not None and prev_detections.shape[0] == 0 else self.num_queries - prev_detections.shape[0]
+        query_inds = furthest_point_sample(encoder_xyz, n_new_queries)
         query_inds = query_inds.long()
         query_xyz = [torch.gather(encoder_xyz[..., x], 1, query_inds) for x in range(3)]
         query_xyz = torch.stack(query_xyz)
         query_xyz = query_xyz.permute(1, 2, 0)
-        if prev_detections is not None:
-            for i in range(len(prev_detections.shape[0])):
-                query_xyz[i, :len(prev_detections[i])] = torch.FloatTensor(prev_detections[i])
+        if n_new_queries < self.num_queries:
+            query_xyz[0] = torch.cat(prev_detections, query_xyz[0])
 
         # Gater op above can be replaced by the three lines below from the pointnet2 codebase
         # xyz_flipped = encoder_xyz.transpose(1, 2).contiguous()

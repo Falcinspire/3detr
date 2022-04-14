@@ -39,6 +39,7 @@ from utils.box_util import (
     flip_axis_to_camera_np,
     get_3d_box_batch_np,
 )
+import pandas as pd
 from datasets.kitti_util import Calibration, compute_box_3d, load_velo_scan, read_label
 
 
@@ -188,8 +189,18 @@ class KITTI3DObjectDetectionDataset(Dataset):
 
         #TODO refactor and improve splitting
         self.data_path = os.path.join(root_dir, "training")
-        all_ids = [f[:-len('.txt')] for f in os.listdir(os.path.join(self.data_path, 'velodyne'))]
+        all_ids = [(f[:-len('.txt')], idx) for idx, f in enumerate(os.listdir(os.path.join(self.data_path, 'velodyne')))]
         self.ids = all_ids[:4000] if split_set == 'train' else all_ids[4000:]
+
+        indices_for_mappings = None
+        with open(os.path.join(root_dir, 'mapping', 'train_rand.txt'), 'r') as inp:
+            indices_for_mappings = [int(value)-1 for value in inp.read().split(',')]
+        raw_mapping_lines = None
+        with open(os.path.join(root_dir, 'mapping', 'train_mapping.txt'), 'r') as inp:
+            raw_mapping_lines = [line.split(' ') for line in inp]
+        mappings_to_raw = [(os.path.join(line[0], f'{line[1]}_sync', 'velodyne_points', 'data'), int(line[2])) for line in raw_mapping_lines]
+        self.raw_mapping = [mappings_to_raw[index] for index in indices_for_mappings]
+        print(self.raw_mapping[0])
 
         self.num_points = num_points
         self.center_normalizing_range = [
@@ -202,7 +213,7 @@ class KITTI3DObjectDetectionDataset(Dataset):
         return len(self.ids)
 
     def __getitem__(self, idx):
-        string_id = self.ids[idx]
+        string_id = self.ids[idx][0]
 
         point_cloud = load_velo_scan(os.path.join(self.data_path, 'velodyne', f'{string_id}.bin'))[:, 0:3]
         calib = Calibration(os.path.join(self.data_path, 'calib', f'{string_id}.txt'))

@@ -143,6 +143,41 @@ def make_args_parser():
 
     return parser
 
+def do_track(
+    model,
+    pc_video_input, # shape = b x nframes x npoints x 3
+):
+    # put model in tracking mode
+    model.track()
+    prev_detections = None
+
+    per_frame_items_tracked = []
+
+    for i in range(pc_video_input.shape[1]):
+        inputs = pc_video_input[:, i, :]
+        inputs = torch.squeeze(inputs)
+        outputs = model(inputs, prev_detections=prev_detections)
+        #idk if its supposed to be unnormalized or normalized
+        # shape? b x num_queries x 3
+        logits = outputs["sem_cls_logits"]
+        # check axis, i believe we still want the tensor shape to be b x num_queries x 1 to figure out which query outputs to drop
+        classes = torch.argmax(logits, axis=2)
+        # check don't care class index
+        # tensor should still be in shape b x num_queries x 1 (False indicating we want to drop, True indicating keep)
+        keep_indices = torch.where(classes == 0, False, True)
+
+        batches = []
+        for b in range(outputs.shape[0]):
+            queries = []
+            for j in range(outputs.shape[1]):
+                if keep_indices[i, j, 0]:
+                    queries.append(outputs['center_unnormalized'])
+            batches.append(queries)
+        prev_detections = batches
+
+        per_frame_items_tracked.append(prev_detections)
+    # list of ragged tensors that contain the tracking results from each frame
+    return per_frame_items_tracked
 
 def do_train(
     args,
