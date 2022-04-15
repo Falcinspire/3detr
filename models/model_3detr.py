@@ -165,8 +165,8 @@ class Model3DETR(nn.Module):
         ]
         self.mlp_heads = nn.ModuleDict(mlp_heads)
 
-    def train(self):
-        self.train()
+    def train(self, mode: bool = True):
+        self.train(mode)
 
     def tracking(self):
         self.eval()
