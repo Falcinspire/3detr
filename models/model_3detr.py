@@ -408,7 +408,7 @@ def build_encoder(args):
             'dropout_rate': args.enc_dropout,
             'max_position_embeddings': args.preenc_npoints, #see https://github.com/google-research/google-research/blob/94ef1c5992057967305cef6cbdd94ab995191279/f_net/models.py#L148
             'layer_norm_eps': 1e-12, #see https://github.com/google-research/google-research/blob/94ef1c5992057967305cef6cbdd94ab995191279/f_net/models.py#L44
-            'fourier': 'matmul',
+            'fourier': 'fourier',
         })
     elif args.enc_type == 'none':
         encoder = NoEncoder()
