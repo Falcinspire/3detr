@@ -58,13 +58,12 @@ class FourierMMLayer(nn.Module):
         self.dft_mat_hidden = self.dft_mat_hidden.to(hidden_states.device)
 
         hidden_states_complex = hidden_states.type(torch.complex128)
-        hidden_states_complex = hidden_states_complex.permute((1, 0, 2))
         return torch.einsum(
             "...ij,...jk,...ni->...nk",
             hidden_states_complex,
             self.dft_mat_hidden,
             self.dft_mat_seq
-        ).real.type(torch.float32).permute((1, 0, 2))
+        ).real.type(torch.float32)
 
 
 class FourierFFTLayer(nn.Module):
@@ -110,7 +109,11 @@ class Model3DETRFNetEncoderAdapter(nn.Module):
                 xyz: Optional [Tensor] = None,
                 transpose_swap: Optional[bool] = False,
                 ):
-        return xyz, self.encoder(src), None
+        # Move batch dimension to front
+        src = src.permute((1, 0, 2))
+        src = self.encoder(src)
+        src = src.permute((1, 0, 2))
+        return xyz, src, None
 
 class FNetEncoder(nn.Module):
     def __init__(self, config):
