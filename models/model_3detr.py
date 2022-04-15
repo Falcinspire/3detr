@@ -166,10 +166,10 @@ class Model3DETR(nn.Module):
         self.mlp_heads = nn.ModuleDict(mlp_heads)
 
     def train(self, mode: bool = True):
-        self.train(mode)
+        super().train(mode)
 
     def tracking(self):
-        self.eval()
+        super().eval()
 
     # Shape of prev_detections = b x N x 3
     def get_query_embeddings(self, encoder_xyz, point_cloud_dims, prev_detections=None):
