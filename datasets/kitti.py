@@ -232,6 +232,16 @@ class KITTI3DObjectDetectionDataset(Dataset):
         # Only use objects of classes with enough data
         objects = [object for object in objects if object.type in self.dataset_config.type2class.keys()]
 
+        # Only capture the part of the point cloud that is visible from the camera
+        point_cloud_proj, point_cloud_proj_infront = calib.project_velo_to_image(point_cloud)
+        visible_mask = \
+            (point_cloud_proj[:, 0] >= 0) & \
+            (point_cloud_proj[:, 1] >= 0) & \
+            (point_cloud_proj[:, 0] < 1224) & \
+            (point_cloud_proj[:, 1] < 370) & \
+            (point_cloud_proj_infront)
+        point_cloud = point_cloud[visible_mask]
+
         bboxes = []
         _og_bboxes = []
         _intermediate_boxes = []
@@ -376,6 +386,7 @@ class KITTI3DObjectDetectionDataset(Dataset):
             angle_classes, angle_residuals
         )
 
+        #NOTE This translates the corners out of the space they are currently in (out of velo axis orientation?)
         box_corners = self.dataset_config.box_parametrization_to_corners_np(
             box_centers[None, ...],
             raw_sizes.astype(np.float32)[None, ...],
@@ -403,10 +414,13 @@ class KITTI3DObjectDetectionDataset(Dataset):
         ret_dict["point_cloud_dims_min"] = point_cloud_dims_min
         ret_dict["point_cloud_dims_max"] = point_cloud_dims_max
 
+        original_gt_box_corners = np.zeros((self.max_num_obj, 8, 3))
+        for idx, bbox in enumerate(bboxes):
+            original_gt_box_corners[idx] = self.dataset_config.my_compute_box_3d(bbox[0:3], bbox[3:6], bbox[6])
+        ret_dict["original_gt_box_corners"] = original_gt_box_corners
+
         #TODO remove
-        # ret_dict["_testing"] = [self.dataset_config.my_compute_box_3d(
-        #         bbox[0:3], bbox[3:6], bbox[6]
-        #     ) for bbox in bboxes]
         # ret_dict["_verification"] = _og_bboxes
         # ret_dict["_intermediate"] = _intermediate_boxes
+
         return ret_dict

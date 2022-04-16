@@ -384,12 +384,14 @@ class Calibration(object):
         pts_2d[:,1] /= pts_2d[:,2]
         return pts_2d[:,0:2]
     
+    # NOTE: This was modified from its original implementation to include an output
+    #       for points behind the camera - Ryan
     def project_velo_to_image(self, pts_3d_velo):
         ''' Input: nx3 points in velodyne coord.
-            Output: nx2 points in image2 coord.
+            Output: nx2 points in image2 coord, boolean array for points infront/behind camera
         '''
         pts_3d_rect = self.project_velo_to_rect(pts_3d_velo)
-        return self.project_rect_to_image(pts_3d_rect)
+        return self.project_rect_to_image(pts_3d_rect), pts_3d_rect[:,2]>=0
 
     # =========================== 
     # ------- 2d to 3d ---------- 
