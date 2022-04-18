@@ -7,6 +7,7 @@ import torch
 import torch.nn as nn
 from third_party.pointnet2.pointnet2_modules import PointnetSAModuleVotes
 from third_party.pointnet2.pointnet2_utils import furthest_point_sample
+from utils.box_util import get_3d_box_batch_tensor
 from utils.pc_util import scale_points, shift_scale_points
 
 from models.helpers import GenericMLP
@@ -134,6 +135,8 @@ class Model3DETR(nn.Module):
 
         self.num_queries = num_queries
         self.box_processor = BoxProcessor(dataset_config)
+
+        self.dataset_config = dataset_config
 
     def build_mlp_heads(self, dataset_config, decoder_dim, mlp_dropout):
         mlp_func = partial(
@@ -282,6 +285,12 @@ class Model3DETR(nn.Module):
                 center_unnormalized, size_unnormalized, angle_continuous
             )
 
+            #TODO make this less scuffed
+            bboxes_batch = torch.cat([center_unnormalized, size_unnormalized, angle_continuous.unsqueeze(-1)], axis=2).cpu().numpy()
+            velo_box_corners = torch.tensor([
+                [self.dataset_config.my_compute_box_3d(bbox[0:3], bbox[3:6], bbox[6]) for bbox in bboxes]
+            for bboxes in bboxes_batch])
+
             # below are not used in computing loss (only for matching/mAP eval)
             # we compute them with no_grad() so that distributed training does not complain about unused variables
             with torch.no_grad():
@@ -303,6 +312,7 @@ class Model3DETR(nn.Module):
                 "objectness_prob": objectness_prob,
                 "sem_cls_prob": semcls_prob,
                 "box_corners": box_corners,
+                "velo_box_corners": velo_box_corners,
             }
             outputs.append(box_prediction)
 
@@ -315,7 +325,7 @@ class Model3DETR(nn.Module):
             "aux_outputs": aux_outputs,  # output from intermediate layers of decoder
         }
 
-    def forward(self, inputs, encoder_only=False, prev_detections=None):
+    def forward(self, inputs, encoder_only=False, prev_detections=None, return_queries=False):
         point_clouds = inputs["point_clouds"]
 
         enc_xyz, enc_features, enc_inds = self.run_encoder(point_clouds)
@@ -348,7 +358,10 @@ class Model3DETR(nn.Module):
         box_predictions = self.get_box_predictions(
             query_xyz, point_cloud_dims, box_features
         )
-        return box_predictions
+        if return_queries:
+            return box_predictions, query_xyz
+        else:
+            return box_predictions
 
 
 def build_preencoder(args):

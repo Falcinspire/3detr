@@ -26,6 +26,7 @@ Date: 2022
 from cmath import pi
 import os
 import sys
+from datasets.kitti_raw_mapping import KittiRawMapping
 import numpy as np
 from torch.utils.data import Dataset
 import scipy.io as sio  # to load .mat files for depth points
@@ -178,12 +179,12 @@ class KITTI3DObjectDetectionDataset(Dataset):
         root_dir=None,
         use_height=False,
         augment=False,
-        num_points=50000,
+        num_points=20000,
         use_random_cuboid=True,
         random_cuboid_min_points=30000,
+        included_point_cloud_clip_size=None, # include the previous x frames
     ):
         assert num_points <= 50000
-        # assert augment == False
         assert split_set in ["train", "val"]
         self.dataset_config = dataset_config
 
@@ -219,8 +220,25 @@ class KITTI3DObjectDetectionDataset(Dataset):
         ]
         self.max_num_obj = 64
 
+        self.included_point_cloud_clip_size = included_point_cloud_clip_size
+        self.raw_mapper = \
+            KittiRawMapping(root_dir) if included_point_cloud_clip_size != None else None
+
     def __len__(self):
         return len(self.ids)
+
+    def _process_point_cloud(self, point_cloud, calib):
+        # Only capture the part of the point cloud that is visible from the camera
+        point_cloud_proj, point_cloud_proj_infront = calib.project_velo_to_image(point_cloud)
+        visible_mask = \
+            (point_cloud_proj[:, 0] >= 0) & \
+            (point_cloud_proj[:, 1] >= 0) & \
+            (point_cloud_proj[:, 0] < 1224) & \
+            (point_cloud_proj[:, 1] < 370) & \
+            (point_cloud_proj_infront)
+        point_cloud = point_cloud[visible_mask]
+
+        return pc_util.random_sampling(point_cloud, self.num_points)
 
     def __getitem__(self, idx):
         string_id, raw_mapping_id = self.ids[idx]
@@ -231,16 +249,6 @@ class KITTI3DObjectDetectionDataset(Dataset):
         objects = read_label(os.path.join(self.data_path, 'label_2', f'{label_id}.txt'))
         # Only use objects of classes with enough data
         objects = [object for object in objects if object.type in self.dataset_config.type2class.keys()]
-
-        # Only capture the part of the point cloud that is visible from the camera
-        point_cloud_proj, point_cloud_proj_infront = calib.project_velo_to_image(point_cloud)
-        visible_mask = \
-            (point_cloud_proj[:, 0] >= 0) & \
-            (point_cloud_proj[:, 1] >= 0) & \
-            (point_cloud_proj[:, 0] < 1224) & \
-            (point_cloud_proj[:, 1] < 370) & \
-            (point_cloud_proj_infront)
-        point_cloud = point_cloud[visible_mask]
 
         bboxes = []
         _og_bboxes = []
@@ -353,12 +361,26 @@ class KITTI3DObjectDetectionDataset(Dataset):
             )
             target_bboxes[i, :] = target_bbox
 
-        point_cloud, choices = pc_util.random_sampling(
-            point_cloud, self.num_points, return_choices=True
-        )
+        point_cloud = self._process_point_cloud(point_cloud, calib)
 
         point_cloud_dims_min = point_cloud.min(axis=0)
         point_cloud_dims_max = point_cloud.max(axis=0)
+
+        point_cloud_video = np.array([], dtype=np.float32)
+        calib_video = \
+            self.raw_mapper.load_calibration_from_video(raw_mapping_id) \
+            if self.included_point_cloud_clip_size != None else \
+            None
+        if self.included_point_cloud_clip_size != None:
+            point_cloud_video = self.raw_mapper.load_previous_velo_video_from_compressed(raw_mapping_id, clip_size=self.included_point_cloud_clip_size)
+            point_cloud_video = [self._process_point_cloud(point_cloud_frame, calib_video) for point_cloud_frame in point_cloud_video]
+
+        #TODO code duplication
+        point_cloud_video_dims_min = np.array([], dtype=np.float32)
+        point_cloud_video_dims_max = np.array([], dtype=np.float32)
+        if self.included_point_cloud_clip_size != None:
+            point_cloud_video_dims_min = np.stack([point_cloud_frame.min(axis=0) for point_cloud_frame in point_cloud_video])
+            point_cloud_video_dims_max = np.stack([point_cloud_frame.max(axis=0) for point_cloud_frame in point_cloud_video])
 
         mult_factor = point_cloud_dims_max - point_cloud_dims_min
         box_sizes_normalized = scale_points(
@@ -396,6 +418,9 @@ class KITTI3DObjectDetectionDataset(Dataset):
 
         ret_dict = {}
         ret_dict["point_clouds"] = point_cloud.astype(np.float32)
+        ret_dict["point_cloud_prev_clips"] = point_cloud_video.astype(np.float32)
+        ret_dict["point_cloud_prev_clips_dims_min"] = point_cloud_video_dims_min
+        ret_dict["point_cloud_prev_clips_dims_max"] = point_cloud_video_dims_max
         ret_dict["gt_box_corners"] = box_corners.astype(np.float32)
         ret_dict["gt_box_centers"] = box_centers.astype(np.float32)
         ret_dict["gt_box_centers_normalized"] = box_centers_normalized.astype(
@@ -414,10 +439,10 @@ class KITTI3DObjectDetectionDataset(Dataset):
         ret_dict["point_cloud_dims_min"] = point_cloud_dims_min
         ret_dict["point_cloud_dims_max"] = point_cloud_dims_max
 
-        original_gt_box_corners = np.zeros((self.max_num_obj, 8, 3))
+        velo_gt_box_corners = np.zeros((self.max_num_obj, 8, 3))
         for idx, bbox in enumerate(bboxes):
-            original_gt_box_corners[idx] = self.dataset_config.my_compute_box_3d(bbox[0:3], bbox[3:6], bbox[6])
-        ret_dict["original_gt_box_corners"] = original_gt_box_corners
+            velo_gt_box_corners[idx] = self.dataset_config.my_compute_box_3d(bbox[0:3], bbox[3:6], bbox[6])
+        ret_dict["velo_gt_box_corners"] = velo_gt_box_corners
 
         #TODO remove
         # ret_dict["_verification"] = _og_bboxes
