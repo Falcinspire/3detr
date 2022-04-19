@@ -286,6 +286,17 @@ class KITTI3DObjectDetectionDataset(Dataset):
 
         bboxes = np.array(bboxes)
 
+        point_cloud = self._process_point_cloud(point_cloud, calib)
+
+        point_cloud_video = np.array([[]], dtype=np.float32)
+        calib_video = \
+            self.raw_mapper.load_calibration_from_video(raw_mapping_id) \
+            if self.included_point_cloud_clip_size != None else \
+            None
+        if self.included_point_cloud_clip_size != None:
+            point_cloud_video = self.raw_mapper.load_previous_velo_video_from_compressed(raw_mapping_id, clip_size=self.included_point_cloud_clip_size)
+            point_cloud_video = np.stack([self._process_point_cloud(point_cloud_frame, calib_video) for point_cloud_frame in point_cloud_video])
+
         # ------------------------------- DATA AUGMENTATION ------------------------------
         if self.augment:
             if np.random.random() > 0.5:
@@ -361,19 +372,8 @@ class KITTI3DObjectDetectionDataset(Dataset):
             )
             target_bboxes[i, :] = target_bbox
 
-        point_cloud = self._process_point_cloud(point_cloud, calib)
-
         point_cloud_dims_min = point_cloud.min(axis=0)
         point_cloud_dims_max = point_cloud.max(axis=0)
-
-        point_cloud_video = np.array([], dtype=np.float32)
-        calib_video = \
-            self.raw_mapper.load_calibration_from_video(raw_mapping_id) \
-            if self.included_point_cloud_clip_size != None else \
-            None
-        if self.included_point_cloud_clip_size != None:
-            point_cloud_video = self.raw_mapper.load_previous_velo_video_from_compressed(raw_mapping_id, clip_size=self.included_point_cloud_clip_size)
-            point_cloud_video = [self._process_point_cloud(point_cloud_frame, calib_video) for point_cloud_frame in point_cloud_video]
 
         #TODO code duplication
         point_cloud_video_dims_min = np.array([], dtype=np.float32)
