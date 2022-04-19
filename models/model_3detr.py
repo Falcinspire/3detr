@@ -286,7 +286,7 @@ class Model3DETR(nn.Module):
             )
 
             #TODO make this less scuffed
-            bboxes_batch = torch.cat([center_unnormalized, size_unnormalized, angle_continuous.unsqueeze(-1)], axis=2).cpu().numpy()
+            bboxes_batch = torch.cat([center_unnormalized, size_unnormalized, angle_continuous.unsqueeze(-1)], axis=2).detach().cpu().numpy()
             velo_box_corners = torch.tensor([
                 [self.dataset_config.my_compute_box_3d(bbox[0:3], bbox[3:6], bbox[6]) for bbox in bboxes]
             for bboxes in bboxes_batch])
