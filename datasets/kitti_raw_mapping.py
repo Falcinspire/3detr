@@ -28,14 +28,24 @@ class KittiRawMapping:
         return velo_scans
 
     def load_previous_velo_video_from_compressed(self, idx, clip_size=4):
-        path, tarf, velo, idx = self.raw_mapping[idx]
-        path, tarf, idx = 'D:/MLDataset/KITTI_ObjectDetection/raw/2011_09_26', '2011_09_26_drive_0001_sync.tar.gz', 3
+        path, tarf, velo, fidx = self.raw_mapping[idx]
         return self._load_velo_scans_from_compressed(
             os.path.join(path, tarf),
-            [f'{velo}/{max(0, idx-i):010d}.bin' for i in range(1, clip_size)]
+            [f'{velo}/{max(0, fidx-i):010d}.bin' for i in range(clip_size-1, 0, -1)]
         )
 
     def load_calibration_from_video(self, idx):
-        path, tarf, velo, idx = self.raw_mapping[idx]
-        path, tarf, idx = 'D:/MLDataset/KITTI_ObjectDetection/raw/2011_09_26', '2011_09_26_drive_0001_sync.tar.gz', 3
+        path, _, _, _ = self.raw_mapping[idx]
         return Calibration(path, from_video=True)
+
+    def load_velo(self, file_path, local_path):
+        with tarfile.open(file_path, "r:gz") as targz:
+            with targz.extractfile(local_path) as velo_file:
+                #see kitti_util.load_velo_scan
+                scan = np.frombuffer(velo_file.read(), dtype=np.float32)
+                scan = scan.reshape((-1, 4))[:, :3]
+                return scan
+
+    def read_number_of_velo_files(self, file_path):
+        with tarfile.open(file_path, "r:gz") as targz:
+            return len(targz.getmembers())

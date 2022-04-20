@@ -182,27 +182,41 @@ class KITTI3DObjectDetectionDataset(Dataset):
         num_points=20000,
         use_random_cuboid=True,
         random_cuboid_min_points=30000,
-        included_point_cloud_clip_size=None, # include the previous x frames
     ):
         assert num_points <= 50000
-        assert split_set in ["train", "val"]
+        assert split_set in ["train", "val", "train-clip", "val-clip", "video"]
         self.dataset_config = dataset_config
+        self.split_set = split_set
 
         assert root_dir != None
 
-        #TODO refactor and improve splitting
         self.root_dir = root_dir
-        self.data_path = os.path.join(root_dir, "training")
-        velodyne_files = os.listdir(os.path.join(self.data_path, 'velodyne'))
-        all_ids = [(f[:-len('.txt')], idx) for idx, f in enumerate(velodyne_files)]
-        all_labels = [f[:-len('.txt')] for f in velodyne_files]
 
-        x_train, x_validate, y_train, y_validate = train_test_split(all_ids, all_labels, test_size=0.25, random_state=612932)
-        self.ids = x_train if split_set == 'train' else x_validate
-        self.labels = y_train if split_set == 'train' else y_validate
+        self.raw_mapper = \
+            KittiRawMapping(root_dir) if self.split_set in ["train-clip", "val-clip", "video"] else None
 
-        for a, b in zip(self.ids, self.labels):
-            assert a[0] == b
+        self.data_len = 0
+        self.data_path = None
+        self.data_path_zip = None
+        self.data_path_zip_local = None
+        if split_set in ["train", "train-clip", "val", "val-clip"]:
+            self.data_path = os.path.join(root_dir, "training")
+            velodyne_files = os.listdir(os.path.join(self.data_path, 'velodyne'))
+            all_ids = [(f[:-len('.txt')], idx) for idx, f in enumerate(velodyne_files)]
+            all_labels = [f[:-len('.txt')] for f in velodyne_files]
+
+            x_train, x_validate, y_train, y_validate = train_test_split(all_ids, all_labels, test_size=0.25, random_state=612932)
+            self.ids = x_train if split_set in ['train', 'train-clip'] else x_validate
+            self.labels = y_train if split_set in ['train', 'train-clip'] else y_validate
+
+            self.data_len = len(self.ids)
+
+            for a, b in zip(self.ids, self.labels):
+                assert a[0] == b
+        else:
+            self.data_path_zip = os.path.join(root_dir, 'raw/2011_09_26/2011_09_26_drive_0001_sync.tar.gz')
+            self.data_path_zip_local = './velodyne_points/data'
+            self.data_len = self.raw_mapper.read_number_of_velo_files(self.data_path_zip)
 
         self.num_points = num_points
         self.augment = augment
@@ -220,12 +234,8 @@ class KITTI3DObjectDetectionDataset(Dataset):
         ]
         self.max_num_obj = 64
 
-        self.included_point_cloud_clip_size = included_point_cloud_clip_size
-        self.raw_mapper = \
-            KittiRawMapping(root_dir) if included_point_cloud_clip_size != None else None
-
     def __len__(self):
-        return len(self.ids)
+        return self.data_len
 
     def _process_point_cloud(self, point_cloud, calib):
         # Only capture the part of the point cloud that is visible from the camera
@@ -241,61 +251,64 @@ class KITTI3DObjectDetectionDataset(Dataset):
         return pc_util.random_sampling(point_cloud, self.num_points)
 
     def __getitem__(self, idx):
-        string_id, raw_mapping_id = self.ids[idx]
-        label_id = self.labels[idx]
 
-        point_cloud = load_velo_scan(os.path.join(self.data_path, 'velodyne', f'{string_id}.bin'))[:, 0:3]
-        calib = Calibration(os.path.join(self.data_path, 'calib', f'{string_id}.txt'))
-        objects = read_label(os.path.join(self.data_path, 'label_2', f'{label_id}.txt'))
-        # Only use objects of classes with enough data
-        objects = [object for object in objects if object.type in self.dataset_config.type2class.keys()]
+        point_cloud = None
+        bboxes = None
+        point_cloud_video = None
 
-        bboxes = []
-        _og_bboxes = []
-        _intermediate_boxes = []
-        for idx, object in enumerate(objects):
-            box3d_pts_3d = compute_box_3d(object, calib.P)[1]
-            box3d_pts_3d = calib.project_rect_to_velo(box3d_pts_3d)
-            _og_bboxes.append(box3d_pts_3d.copy())
+        if self.split_set in ["train", "train-clip", "val", "val-clip"]:
+            string_id, raw_mapping_id = self.ids[idx]
+            label_id = self.labels[idx]
 
-            v2 = box3d_pts_3d[1][:2]
-            v1 = box3d_pts_3d[0][:2]
-            angle = angle_between(v2 - v1, np.array([1, 0]))
-            # cross product is positive if v2 is closer clockwise than counterclockwise from v1. I'm pretty sure anyways.
-            if np.cross(v1, v2) > 0: angle = -angle
+            point_cloud = load_velo_scan(os.path.join(self.data_path, 'velodyne', f'{string_id}.bin'))[:, 0:3]
+            calib = Calibration(os.path.join(self.data_path, 'calib', f'{string_id}.txt'))
+            objects = read_label(os.path.join(self.data_path, 'label_2', f'{label_id}.txt'))
+            # Only use objects of classes with enough data
+            objects = [object for object in objects if object.type in self.dataset_config.type2class.keys()]
 
-            label_center = np.mean(box3d_pts_3d, axis=0)
-            box3d_pts_3d -= label_center
-            box3d_pts_3d = np.matmul(box3d_pts_3d, rotz(-angle))
-            box3d_pts_3d += label_center
+            bboxes = []
+            for idx, object in enumerate(objects):
+                box3d_pts_3d = compute_box_3d(object, calib.P)[1]
+                box3d_pts_3d = calib.project_rect_to_velo(box3d_pts_3d)
 
-            _intermediate_boxes.append(box3d_pts_3d.copy())
+                v2 = box3d_pts_3d[1][:2]
+                v1 = box3d_pts_3d[0][:2]
+                angle = angle_between(v2 - v1, np.array([1, 0]))
+                # cross product is positive if v2 is closer clockwise than counterclockwise from v1. I'm pretty sure anyways.
+                if np.cross(v1, v2) > 0: angle = -angle
 
-            new_bbox = np.array([
-                np.min(box3d_pts_3d[:,0]), np.min(box3d_pts_3d[:,1]), np.min(box3d_pts_3d[:,2]), 
-                np.max(box3d_pts_3d[:,0]), np.max(box3d_pts_3d[:,1]), np.max(box3d_pts_3d[:,2]),
-            ])
+                label_center = np.mean(box3d_pts_3d, axis=0)
+                box3d_pts_3d -= label_center
+                box3d_pts_3d = np.matmul(box3d_pts_3d, rotz(-angle))
+                box3d_pts_3d += label_center
 
-            width, length, height = (new_bbox[3] - new_bbox[0]) / 2, (new_bbox[4] - new_bbox[1]) / 2, (new_bbox[5] - new_bbox[2]) / 2
-            bboxes.append(np.array([
-                new_bbox[0] + width, new_bbox[1] + length, new_bbox[2] + height,
-                width, length, height,
-                angle,
-                self.dataset_config.type2class[object.type],
-            ]))
+                new_bbox = np.array([
+                    np.min(box3d_pts_3d[:,0]), np.min(box3d_pts_3d[:,1]), np.min(box3d_pts_3d[:,2]), 
+                    np.max(box3d_pts_3d[:,0]), np.max(box3d_pts_3d[:,1]), np.max(box3d_pts_3d[:,2]),
+                ])
 
-        bboxes = np.array(bboxes)
+                width, length, height = (new_bbox[3] - new_bbox[0]) / 2, (new_bbox[4] - new_bbox[1]) / 2, (new_bbox[5] - new_bbox[2]) / 2
+                bboxes.append(np.array([
+                    new_bbox[0] + width, new_bbox[1] + length, new_bbox[2] + height,
+                    width, length, height,
+                    angle,
+                    self.dataset_config.type2class[object.type],
+                ]))
 
-        point_cloud = self._process_point_cloud(point_cloud, calib)
+            bboxes = np.array(bboxes)
 
-        point_cloud_video = np.array([[]], dtype=np.float32)
-        calib_video = \
-            self.raw_mapper.load_calibration_from_video(raw_mapping_id) \
-            if self.included_point_cloud_clip_size != None else \
-            None
-        if self.included_point_cloud_clip_size != None:
-            point_cloud_video = self.raw_mapper.load_previous_velo_video_from_compressed(raw_mapping_id, clip_size=self.included_point_cloud_clip_size)
-            point_cloud_video = np.stack([self._process_point_cloud(point_cloud_frame, calib_video) for point_cloud_frame in point_cloud_video])
+            point_cloud = self._process_point_cloud(point_cloud, calib)
+
+            point_cloud_video = np.array([[[]]], dtype=np.float32)
+            if self.split_set in ["train-clip", "val-clip"]:
+                calib_video = self.raw_mapper.load_calibration_from_video(raw_mapping_id)
+                point_cloud_video = self.raw_mapper.load_previous_velo_video_from_compressed(raw_mapping_id, clip_size=4)
+                point_cloud_video = np.stack([self._process_point_cloud(point_cloud_frame, calib_video) for point_cloud_frame in point_cloud_video])
+        else:
+            point_cloud = self.raw_mapper.load_velo(self.data_path_zip, f'{self.data_path_zip_local}/{idx:010d}.bin')
+            bboxes = np.zeros((0, 8))
+            point_cloud_video = np.array([[[]]], dtype=np.float32)
+
 
         # ------------------------------- DATA AUGMENTATION ------------------------------
         if self.augment:
@@ -378,7 +391,7 @@ class KITTI3DObjectDetectionDataset(Dataset):
         #TODO code duplication
         point_cloud_video_dims_min = np.array([], dtype=np.float32)
         point_cloud_video_dims_max = np.array([], dtype=np.float32)
-        if self.included_point_cloud_clip_size != None:
+        if self.split_set in ["train-clip", "val-clip"]:
             point_cloud_video_dims_min = np.stack([point_cloud_frame.min(axis=0) for point_cloud_frame in point_cloud_video])
             point_cloud_video_dims_max = np.stack([point_cloud_frame.max(axis=0) for point_cloud_frame in point_cloud_video])
 
@@ -427,7 +440,7 @@ class KITTI3DObjectDetectionDataset(Dataset):
             np.float32
         )
         target_bboxes_semcls = np.zeros((self.max_num_obj))
-        target_bboxes_semcls[0 : bboxes.shape[0]] = bboxes[:, -1]  # from 0 to 8
+        target_bboxes_semcls[0 : bboxes.shape[0]] = bboxes[:, -1]
         ret_dict["gt_box_sem_cls_label"] = target_bboxes_semcls.astype(np.int64)
         ret_dict["gt_box_present"] = target_bboxes_mask.astype(np.float32)
         ret_dict["scan_idx"] = np.array(idx).astype(np.int64)
@@ -443,9 +456,5 @@ class KITTI3DObjectDetectionDataset(Dataset):
         for idx, bbox in enumerate(bboxes):
             velo_gt_box_corners[idx] = self.dataset_config.my_compute_box_3d(bbox[0:3], bbox[3:6], bbox[6])
         ret_dict["velo_gt_box_corners"] = velo_gt_box_corners
-
-        #TODO remove
-        # ret_dict["_verification"] = _og_bboxes
-        # ret_dict["_intermediate"] = _intermediate_boxes
 
         return ret_dict
