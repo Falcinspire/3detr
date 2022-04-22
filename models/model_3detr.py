@@ -100,6 +100,7 @@ class Model3DETR(nn.Module):
         position_embedding="fourier",
         mlp_dropout=0.3,
         num_queries=256,
+        num_queries_downsample_factor=1,
     ):
         super().__init__()
         self.pre_encoder = pre_encoder
@@ -134,6 +135,7 @@ class Model3DETR(nn.Module):
         self.build_mlp_heads(dataset_config, decoder_dim, mlp_dropout)
 
         self.num_queries = num_queries
+        self.num_queries_downsample_factor = num_queries_downsample_factor
         self.box_processor = BoxProcessor(dataset_config)
 
         self.dataset_config = dataset_config
@@ -177,13 +179,15 @@ class Model3DETR(nn.Module):
     # Shape of prev_detections = b x N x 3
     def get_query_embeddings(self, encoder_xyz, point_cloud_dims, prev_detections=None):
         query_inds = furthest_point_sample(encoder_xyz, self.num_queries)
+        subsample_size = query_inds.shape[1] // self.num_queries_downsample_factor
+        query_inds = torch.stack([row[torch.randperm(row.shape[0])[:subsample_size]] for row in query_inds])
         query_inds = query_inds.long()
         query_xyz = [torch.gather(encoder_xyz[..., x], 1, query_inds) for x in range(3)]
         query_xyz = torch.stack(query_xyz)
         query_xyz = query_xyz.permute(1, 2, 0)
         if prev_detections is not None:
-            for i in range(len(prev_detections.shape[0])):
-                query_xyz[i, :len(prev_detections[i])] = torch.FloatTensor(prev_detections[i])
+            for i in range(len(prev_detections)):
+                query_xyz[i, :len(prev_detections[i])] = prev_detections[i]
 
         # Gater op above can be replaced by the three lines below from the pointnet2 codebase
         # xyz_flipped = encoder_xyz.transpose(1, 2).contiguous()
@@ -456,6 +460,7 @@ def build_3detr(args, dataset_config):
         decoder_dim=args.dec_dim,
         mlp_dropout=args.mlp_dropout,
         num_queries=args.nqueries,
+        num_queries_downsample_factor=args.nqueries_downsample,
     )
     output_processor = BoxProcessor(dataset_config)
     return model, output_processor

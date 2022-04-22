@@ -5,6 +5,10 @@ import logging
 import math
 import time
 import sys
+import itertools
+import os
+from os import path
+import numpy as np
 
 from torch.distributed.distributed_c10d import reduce
 from utils.ap_calculator import APCalculator
@@ -214,3 +218,105 @@ def evaluate(
         logger.log_scalars(test_dict, curr_train_iter, prefix="Test/")
 
     return ap_calculator
+
+@torch.no_grad()
+def sample_raw_only(
+    args,
+    curr_epoch,
+    model,
+    criterion,
+    dataset_config,
+    dataset_loader,
+    logger,
+    curr_train_iter,
+):
+    net_device = next(model.parameters()).device
+
+    model.eval()
+    barrier()
+    for batch_idx, batch_data_label in enumerate(itertools.islice(dataset_loader, 1)):
+        curr_time = time.time()
+
+        batches = len(batch_data_label['point_clouds'])
+
+        batch_videos = [
+            {
+                "point_clouds_video": [clip for clip in point_cloud_prev_clips] + [point_clouds],
+                "point_cloud_dims_min_video": [clip for clip in point_cloud_prev_clips_dims_min] + [point_cloud_dims_min],
+                "point_cloud_dims_max_video": [clip for clip in point_cloud_prev_clips_dims_max] + [point_cloud_dims_max],
+            }
+            for (
+                point_cloud_prev_clips, 
+                point_clouds, 
+                point_cloud_prev_clips_dims_min, 
+                point_cloud_prev_clips_dims_max, 
+                point_cloud_dims_min, 
+                point_cloud_dims_max
+            ) in zip(
+                batch_data_label['point_cloud_prev_clips'], 
+                batch_data_label['point_clouds'],
+                batch_data_label['point_cloud_prev_clips_dims_min'],
+                batch_data_label['point_cloud_prev_clips_dims_max'],
+                batch_data_label['point_cloud_dims_min'],
+                batch_data_label['point_cloud_dims_max'],
+            )
+        ]
+
+        input_repeated = [
+            {
+                "point_clouds": torch.stack([batch_videos[j]["point_clouds_video"][i] for j in range(batches)]),
+                "point_cloud_dims_min": torch.stack([batch_videos[j]["point_cloud_dims_min_video"][i] for j in range(batches)]),
+                "point_cloud_dims_max": torch.stack([batch_videos[j]["point_cloud_dims_max_video"][i] for j in range(batches)]),
+            }
+            for i in range(len(batch_videos[0]['point_clouds_video']))
+        ]
+
+        prev_detections = torch.zeros((batches, 0, 3))
+        last_prev_detections = torch.zeros((batches, 0, 3))
+        per_frame_items_tracked = []
+        for local_idx, inputs in enumerate(input_repeated):
+            for key in inputs:
+                inputs[key] = inputs[key].to(net_device)
+
+            outputs, query_xyz = model(inputs, return_queries=True, prev_detections=prev_detections)
+
+            # Memory intensive as it gathers point cloud GT tensor across all ranks
+            outputs["outputs"] = all_gather_dict(outputs["outputs"])
+            inputs = all_gather_dict(inputs)
+            
+            #idk if its supposed to be unnormalized or normalized
+            # shape? b x num_queries x 3
+            logits = outputs["outputs"]["sem_cls_logits"]
+            confidence_logits = outputs["outputs"]["objectness_prob"]
+            # check axis, i believe we still want the tensor shape to be b x num_queries x 1 to figure out which query outputs to drop
+            classes = torch.argmax(logits, axis=-1)
+
+            #TODO objectness
+
+            keep_indices = ((classes == len(dataset_config.type2class)) & (confidence_logits >= 0.05)) #TODO magic number
+
+            batches = []
+            for b in range(keep_indices.shape[0]):
+                queries = []
+                for j in range(keep_indices.shape[1]):
+                    if keep_indices[b, j]:
+                        queries.append(outputs["outputs"]['center_unnormalized'][b, j])
+                batches.append(torch.stack(queries) if len(queries) > 0 else torch.zeros((0, 3)))
+            last_prev_detections = prev_detections
+            prev_detections = batches
+
+            per_frame_items_tracked.append(prev_detections)
+
+            # TODO make this args param
+            if not path.isdir('visualizations'):
+                os.mkdir('visualizations')
+            filepath = f'visualizations/{batch_idx}_{local_idx}.pt'
+            print(f'Writing to {filepath}...')
+            torch.save({
+                'inputs': inputs,
+                'query_points': query_xyz,
+                'incoming_detections': last_prev_detections,
+                'outputs': outputs,
+            }, filepath)
+
+        barrier()
