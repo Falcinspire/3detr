@@ -12,7 +12,7 @@ from torch.utils.data import DataLoader, DistributedSampler
 
 # 3DETR codebase specific imports
 from datasets import build_dataset
-from engine import evaluate, train_one_epoch
+from engine import evaluate, train_one_epoch, sample_raw_only
 from models import build_model
 from optimizer import build_optimizer
 from criterion import build_criterion
@@ -49,7 +49,7 @@ def make_args_parser():
     parser.add_argument(
         "--enc_type", default="vanilla", choices=["masked", "maskedv2", "fnet", "none", "vanilla"]
     )
-    # Below options are only valid for vanilla encoder
+    # Below options are only valid for vanilla encoder and fnet
     parser.add_argument("--enc_nlayers", default=3, type=int)
     parser.add_argument("--enc_dim", default=256, type=int)
     parser.add_argument("--enc_ffn_dim", default=128, type=int)
@@ -80,6 +80,7 @@ def make_args_parser():
         "--pos_embed", default="fourier", type=str, choices=["fourier", "sine"]
     )
     parser.add_argument("--nqueries", default=256, type=int)
+    parser.add_argument("--nqueries_downsample", default=16, type=int)
     parser.add_argument("--use_color", default=False, action="store_true")
 
     ##### Set Loss #####
@@ -130,6 +131,11 @@ def make_args_parser():
     ##### Testing #####
     parser.add_argument("--test_only", default=False, action="store_true")
     parser.add_argument("--test_ckpt", default=None, type=str)
+
+    ##### Sample Raw Processing #####
+    parser.add_argument("--sample_raw_only", default=False, action="store_true")
+    parser.add_argument("--sample_raw_ckpt", default=None, type=str)
+    parser.add_argument("--sample_raw_output", default='/raw_output', type=str)
 
     ##### I/O #####
     parser.add_argument("--checkpoint_dir", default=None, type=str)
@@ -364,6 +370,27 @@ def test_model(args, model, model_no_ddp, criterion, dataset_config, dataloaders
         print(f"Test model; Metrics {metric_str}")
         print("==" * 10)
 
+def sample_raw_model(args, model, model_no_ddp, criterion, dataset_config, dataloaders):
+    if args.sample_raw_ckpt is None or not os.path.isfile(args.sample_raw_ckpt):
+        f"Please specify a visualization checkpoint using --sample_raw_ckpt. Found invalid value {args.sample_raw_ckpt}"
+        sys.exit(1)
+
+    sd = torch.load(args.sample_raw_ckpt, map_location=torch.device("cpu"))
+    model_no_ddp.load_state_dict(sd["model"])
+    logger = Logger()
+    criterion = None  # do not compute loss for speed-up; Comment out to see test loss
+    epoch = -1
+    curr_iter = 0
+    sample_raw_only(
+        args,
+        epoch,
+        model,
+        criterion,
+        dataset_config,
+        dataloaders["train"],
+        logger,
+        curr_iter,
+    )
 
 def main(local_rank, args):
     if args.ngpus > 1:
@@ -402,10 +429,12 @@ def main(local_rank, args):
     dataloaders = {}
     if args.test_only:
         dataset_splits = ["test"]
+    elif args.sample_raw_only:
+        dataset_splits = ["train"]
     else:
         dataset_splits = ["train", "test"]
     for split in dataset_splits:
-        if split == "train":
+        if split == "train" and not args.sample_raw_only: #TODO remove 2nd condition
             shuffle = True
         else:
             shuffle = False
@@ -428,6 +457,9 @@ def main(local_rank, args):
     if args.test_only:
         criterion = None  # faster evaluation
         test_model(args, model, model_no_ddp, criterion, dataset_config, dataloaders)
+    elif args.sample_raw_only:
+        criterion = None
+        sample_raw_model(args, model, model_no_ddp, criterion, dataset_config, dataloaders)
     else:
         assert (
             args.checkpoint_dir is not None
