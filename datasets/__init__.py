@@ -14,7 +14,19 @@ def build_dataset(args):
     dataset_builder = DATASET_FUNCTIONS[args.dataset_name][0]
     dataset_config = DATASET_FUNCTIONS[args.dataset_name][1]()
     
-    if args.sample_raw_only:
+    if args.render_only:
+        dataset_dict = {
+            "train": dataset_builder(
+                dataset_config, 
+                split_set=\
+                    "train-clip" if args.render_kitti_dataset == 'kitti-clip' else \
+                        ("train" if args.render_kitti_dataset == 'kitti-frame' else "video"), 
+                root_dir=args.dataset_root_dir, 
+                augment=False, 
+            ),
+            "test": None,
+        }
+    elif args.predict_only:
         dataset_dict = {
             "train": dataset_builder(
                 dataset_config, 

@@ -12,7 +12,7 @@ from torch.utils.data import DataLoader, DistributedSampler
 
 # 3DETR codebase specific imports
 from datasets import build_dataset
-from engine import evaluate, train_one_epoch, sample_raw_only
+from engine import evaluate, train_one_epoch, render_only, predict_only
 from models import build_model
 from optimizer import build_optimizer
 from criterion import build_criterion
@@ -132,10 +132,17 @@ def make_args_parser():
     parser.add_argument("--test_only", default=False, action="store_true")
     parser.add_argument("--test_ckpt", default=None, type=str)
 
-    ##### Sample Raw Processing #####
-    parser.add_argument("--sample_raw_only", default=False, action="store_true")
-    parser.add_argument("--sample_raw_ckpt", default=None, type=str)
-    parser.add_argument("--sample_raw_output", default='/raw_output', type=str)
+    ##### Rendering Processing #####
+    parser.add_argument("--render_only", default=False, action="store_true")
+    parser.add_argument("--render_kitti_dataset", default=None, type=str)
+    parser.add_argument("--render_ckpt", default=None, type=str)
+    parser.add_argument("--render_output", default='rendering', type=str)
+
+    ##### Prediction Processing #####
+    parser.add_argument("--predict_only", default=False, action="store_true")
+    parser.add_argument("--predict_with_query_reuse", default=True, action="store_true")
+    parser.add_argument("--predict_ckpt", default=None, type=str)
+    parser.add_argument("--predict_output", default='predictions', type=str)
 
     ##### I/O #####
     parser.add_argument("--checkpoint_dir", default=None, type=str)
@@ -370,18 +377,41 @@ def test_model(args, model, model_no_ddp, criterion, dataset_config, dataloaders
         print(f"Test model; Metrics {metric_str}")
         print("==" * 10)
 
-def sample_raw_model(args, model, model_no_ddp, criterion, dataset_config, dataloaders):
-    if args.sample_raw_ckpt is None or not os.path.isfile(args.sample_raw_ckpt):
-        f"Please specify a visualization checkpoint using --sample_raw_ckpt. Found invalid value {args.sample_raw_ckpt}"
+def predict_model(args, model, model_no_ddp, criterion, dataset_config, dataloaders):
+    if args.predict_ckpt is None or not os.path.isfile(args.predict_ckpt):
+        f"Please specify a prediction checkpoint using --predict_ckpt. Found invalid value {args.predict_ckpt}"
         sys.exit(1)
 
-    sd = torch.load(args.sample_raw_ckpt, map_location=torch.device("cpu"))
+    sd = torch.load(args.predict_ckpt, map_location=torch.device("cpu"))
     model_no_ddp.load_state_dict(sd["model"])
     logger = Logger()
     criterion = None  # do not compute loss for speed-up; Comment out to see test loss
     epoch = -1
     curr_iter = 0
-    sample_raw_only(
+    predict_only(
+        args,
+        epoch,
+        model,
+        criterion,
+        dataset_config,
+        dataloaders["train"],
+        logger,
+        curr_iter,
+        args.predict_with_query_reuse,
+    )
+
+def render_model(args, model, model_no_ddp, criterion, dataset_config, dataloaders):
+    if args.render_ckpt is None or not os.path.isfile(args.render_ckpt):
+        f"Please specify a rendering checkpoint using --render_ckpt. Found invalid value {args.render_ckpt}"
+        sys.exit(1)
+
+    sd = torch.load(args.render_ckpt, map_location=torch.device("cpu"))
+    model_no_ddp.load_state_dict(sd["model"])
+    logger = Logger()
+    criterion = None  # do not compute loss for speed-up; Comment out to see test loss
+    epoch = -1
+    curr_iter = 0
+    render_only(
         args,
         epoch,
         model,
@@ -429,12 +459,12 @@ def main(local_rank, args):
     dataloaders = {}
     if args.test_only:
         dataset_splits = ["test"]
-    elif args.sample_raw_only:
+    elif args.render_only:
         dataset_splits = ["train"]
     else:
         dataset_splits = ["train", "test"]
     for split in dataset_splits:
-        if split == "train" and not args.sample_raw_only: #TODO remove 2nd condition
+        if split == "train" and not (args.render_only or args.predict_only): #TODO remove 2nd condition
             shuffle = True
         else:
             shuffle = False
@@ -457,9 +487,12 @@ def main(local_rank, args):
     if args.test_only:
         criterion = None  # faster evaluation
         test_model(args, model, model_no_ddp, criterion, dataset_config, dataloaders)
-    elif args.sample_raw_only:
+    elif args.render_only:
         criterion = None
-        sample_raw_model(args, model, model_no_ddp, criterion, dataset_config, dataloaders)
+        render_model(args, model, model_no_ddp, criterion, dataset_config, dataloaders)
+    elif args.predict_only:
+        criterion = None
+        predict_model(args, model, model_no_ddp, criterion, dataset_config, dataloaders)
     else:
         assert (
             args.checkpoint_dir is not None

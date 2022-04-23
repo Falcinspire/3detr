@@ -68,9 +68,9 @@ class Open3dOfflineRendererUtil:
         fov_type = o3d.visualization.rendering.Camera.FovType.Horizontal
         self.renderer_pc.scene.camera.set_projection(vertical_field_of_view, aspect_ratio, near_plane, far_plane, fov_type)
 
-        center = [40, 0, -10]  # look_at target
-        eye = [-10, 0, 10]  # camera position
-        up = [0, 0, 1]  # camera orientation
+        center = [20, 0, 0]  # look_at target
+        eye = [-10, -10, 0]  # camera position
+        up = [0, -1, 0]  # camera orientation
         self.renderer_pc.scene.camera.look_at(center, eye, up)
 
         self.object_count = 0

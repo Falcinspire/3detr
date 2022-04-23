@@ -38,6 +38,9 @@ class KittiRawMapping:
         path, _, _, _ = self.raw_mapping[idx]
         return Calibration(path, from_video=True)
 
+    def load_calibration_from_video_path(self, path):
+        return Calibration(path, from_video=True)
+
     def load_velo(self, file_path, local_path):
         with tarfile.open(file_path, "r:gz") as targz:
             with targz.extractfile(local_path) as velo_file:

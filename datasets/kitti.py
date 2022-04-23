@@ -32,6 +32,7 @@ from torch.utils.data import Dataset
 import scipy.io as sio  # to load .mat files for depth points
 from sklearn.model_selection import train_test_split
 import tarfile
+from utils.axis_align_util import convert_box_corners_into_obb
 
 import utils.pc_util as pc_util
 from utils.random_cuboid import RandomCuboid
@@ -47,25 +48,6 @@ from datasets.kitti_util import Calibration, compute_box_3d, load_velo_scan, rea
 MEAN_COLOR_RGB = np.array([0.5, 0.5, 0.5])  # sunrgbd color is in 0~1
 DATA_PATH_V1 = "" ## Replace with path to dataset
 DATA_PATH_V2 = "" ## Not used in the codebase.
-
-# refs https://stackoverflow.com/a/13849249
-def unit_vector(vector):
-    """ Returns the unit vector of the vector.  """
-    return vector / np.linalg.norm(vector)
-
-def angle_between(v1, v2):
-    """ Returns the angle in radians between vectors 'v1' and 'v2'::
-
-            >>> angle_between((1, 0, 0), (0, 1, 0))
-            1.5707963267948966
-            >>> angle_between((1, 0, 0), (1, 0, 0))
-            0.0
-            >>> angle_between((1, 0, 0), (-1, 0, 0))
-            3.141592653589793
-    """
-    v1_u = unit_vector(v1)
-    v2_u = unit_vector(v2)
-    return np.arccos(np.clip(np.dot(v1_u, v2_u), -1.0, 1.0))
 
 class KITTI3DObjectDetectionDatasetConfig(object):
     def __init__(self):
@@ -215,6 +197,7 @@ class KITTI3DObjectDetectionDataset(Dataset):
                 assert a[0] == b
         else:
             self.data_path_zip = os.path.join(root_dir, 'raw/2011_09_26/2011_09_26_drive_0001_sync.tar.gz')
+            self.data_path_zip_calib = os.path.join(root_dir, 'raw/2011_09_26')
             self.data_path_zip_local = './velodyne_points/data'
             self.data_len = self.raw_mapper.read_number_of_velo_files(self.data_path_zip)
 
@@ -259,7 +242,6 @@ class KITTI3DObjectDetectionDataset(Dataset):
         if self.split_set in ["train", "train-clip", "val", "val-clip"]:
             string_id, raw_mapping_id = self.ids[idx]
             label_id = self.labels[idx]
-
             point_cloud = load_velo_scan(os.path.join(self.data_path, 'velodyne', f'{string_id}.bin'))[:, 0:3]
             calib = Calibration(os.path.join(self.data_path, 'calib', f'{string_id}.txt'))
             objects = read_label(os.path.join(self.data_path, 'label_2', f'{label_id}.txt'))
@@ -267,34 +249,16 @@ class KITTI3DObjectDetectionDataset(Dataset):
             objects = [object for object in objects if object.type in self.dataset_config.type2class.keys()]
 
             bboxes = []
-            for idx, object in enumerate(objects):
+            for object in objects:
                 box3d_pts_3d = compute_box_3d(object, calib.P)[1]
                 box3d_pts_3d = calib.project_rect_to_velo(box3d_pts_3d)
-
-                v2 = box3d_pts_3d[1][:2]
-                v1 = box3d_pts_3d[0][:2]
-                angle = angle_between(v2 - v1, np.array([1, 0]))
-                # cross product is positive if v2 is closer clockwise than counterclockwise from v1. I'm pretty sure anyways.
-                if np.cross(v1, v2) > 0: angle = -angle
-
-                label_center = np.mean(box3d_pts_3d, axis=0)
-                box3d_pts_3d -= label_center
-                box3d_pts_3d = np.matmul(box3d_pts_3d, rotz(-angle))
-                box3d_pts_3d += label_center
-
-                new_bbox = np.array([
-                    np.min(box3d_pts_3d[:,0]), np.min(box3d_pts_3d[:,1]), np.min(box3d_pts_3d[:,2]), 
-                    np.max(box3d_pts_3d[:,0]), np.max(box3d_pts_3d[:,1]), np.max(box3d_pts_3d[:,2]),
-                ])
-
-                width, length, height = (new_bbox[3] - new_bbox[0]) / 2, (new_bbox[4] - new_bbox[1]) / 2, (new_bbox[5] - new_bbox[2]) / 2
+                obb = convert_box_corners_into_obb(box3d_pts_3d)
                 bboxes.append(np.array([
-                    new_bbox[0] + width, new_bbox[1] + length, new_bbox[2] + height,
-                    width, length, height,
-                    angle,
+                    obb[0], obb[1], obb[2],
+                    obb[3], obb[4], obb[5],
+                    obb[6],
                     self.dataset_config.type2class[object.type],
                 ]))
-
             bboxes = np.array(bboxes)
 
             point_cloud = self._process_point_cloud(point_cloud, calib)
@@ -305,7 +269,11 @@ class KITTI3DObjectDetectionDataset(Dataset):
                 point_cloud_video = self.raw_mapper.load_previous_velo_video_from_compressed(raw_mapping_id, clip_size=4)
                 point_cloud_video = np.stack([self._process_point_cloud(point_cloud_frame, calib_video) for point_cloud_frame in point_cloud_video])
         else:
-            point_cloud = self.raw_mapper.load_velo(self.data_path_zip, f'{self.data_path_zip_local}/{idx:010d}.bin')
+            calib_video = self.raw_mapper.load_calibration_from_video_path(self.data_path_zip_calib)
+            point_cloud = self._process_point_cloud(
+                self.raw_mapper.load_velo(self.data_path_zip, f'{self.data_path_zip_local}/{idx:010d}.bin'),
+                calib_video,
+            )
             bboxes = np.zeros((0, 8))
             point_cloud_video = np.array([[[]]], dtype=np.float32)
 
@@ -451,10 +419,5 @@ class KITTI3DObjectDetectionDataset(Dataset):
         ret_dict["gt_angle_residual_label"] = angle_residuals
         ret_dict["point_cloud_dims_min"] = point_cloud_dims_min
         ret_dict["point_cloud_dims_max"] = point_cloud_dims_max
-
-        velo_gt_box_corners = np.zeros((self.max_num_obj, 8, 3))
-        for idx, bbox in enumerate(bboxes):
-            velo_gt_box_corners[idx] = self.dataset_config.my_compute_box_3d(bbox[0:3], bbox[3:6], bbox[6])
-        ret_dict["velo_gt_box_corners"] = velo_gt_box_corners
 
         return ret_dict
