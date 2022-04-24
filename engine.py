@@ -20,6 +20,7 @@ from utils.dist import (
     reduce_dict,
     barrier,
 )
+from utils.open3d_renderer_util import Open3dInteractiveRendererUtil
 
 
 def compute_learning_rate(args, curr_epoch_normalized):
@@ -231,6 +232,7 @@ def sample_raw_only(
     curr_train_iter,
 ):
     net_device = next(model.parameters()).device
+    renderer = Open3dInteractiveRendererUtil(640, 480)
 
     model.eval()
     barrier()
@@ -311,6 +313,7 @@ def sample_raw_only(
             if not path.isdir('visualizations'):
                 os.mkdir('visualizations')
             filepath = f'visualizations/{batch_idx}_{local_idx}.pt'
+
             print(f'Writing to {filepath}...')
             torch.save({
                 'inputs': inputs,
@@ -318,5 +321,18 @@ def sample_raw_only(
                 'incoming_detections': last_prev_detections,
                 'outputs': outputs,
             }, filepath)
-
+            print(f'Rendering scene {filepath.replace(".pt", ".png")}...')
+            _render_scene(renderer, inputs, outputs, filepath.replace('.pt', '.png'), prev_detections)
         barrier()
+
+def _render_scene(renderer, inputs, outputs, filepath, reused_query_points):
+    # Render PC
+    renderer.clear_scene()
+    renderer.draw_point_cloud(inputs)
+    # Render Boxes
+    for output, idx in enumerate(outputs['outputs']):
+        # corners should be 2d np array, checked this with output of model_3detr
+        corners = output['box_corners']
+        renderer.draw_box(corners, color = [0.0, 1.0, 0.0] if idx < len(reused_query_points) else [0.0, 0.0, 1.0])
+
+    renderer.render_image(filepath)
