@@ -367,7 +367,7 @@ def predict_only(
                         score = confidence
 
                         out.write(
-                            f'{type} {truncated} {occluded} {alpha} {coords_2d[0]:.2f} {coords_2d[1]:.2f} {coords_2d[2]:.2f} {coords_3d_dimensions[0]:.2f} {coords_3d_dimensions[1]:.2f} {coords_3d_dimensions[2]:.2f} {coords_2d[3]:.2f} {coords_3d_pos[0]:.2f} {coords_3d_pos[1]:.2f} {coords_3d_pos[2]:.2f} {coords_3d_ry:.2f} {score:.2f}\n'
+                            f'{type} {truncated} {occluded} {alpha} {coords_2d[0]:.2f} {coords_2d[1]:.2f} {coords_2d[2]:.2f} {coords_2d[3]:.2f} {coords_3d_dimensions[0]:.2f} {coords_3d_dimensions[1]:.2f} {coords_3d_dimensions[2]:.2f} {coords_3d_pos[0]:.2f} {coords_3d_pos[1]:.2f} {coords_3d_pos[2]:.2f} {coords_3d_ry:.2f} {score:.2f}\n'
                         )
 
         barrier()
