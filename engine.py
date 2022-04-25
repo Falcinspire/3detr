@@ -250,6 +250,9 @@ def predict_only(
     model.eval()
     barrier()
 
+    num_reused_query_points = []
+    num_reused_query_points_used = []
+
     for batch_idx, batch_data_label in enumerate(dataset_loader):
         curr_time = time.time()
 
@@ -303,8 +306,27 @@ def predict_only(
 
             predicted_box_corners=outputs['outputs']["box_corners"]
             sem_cls_probs=outputs['outputs']["sem_cls_prob"]
+            pred_sem_cls = torch.argmax(sem_cls_probs, dim=-1)
             objectness_probs=outputs['outputs']["objectness_prob"]
+            center_unnormalized=outputs['outputs']['center_unnormalized']
             point_cloud=batch_data_label["point_clouds"]
+
+            for idx, (center_unnormalized_each, pred_sem_cls_each, objectness_probs_each) in enumerate(zip(center_unnormalized, pred_sem_cls, objectness_probs)):
+                queries = (pred_sem_cls_each < dataset_config.num_semcls) & (objectness_probs_each > 0.05) #TODO magic number
+                if len(num_reused_query_points) == 0:
+                    num_reused_query_points = [0 for _ in batch_data_label['point_clouds']]
+                    num_reused_query_points_used = [0 for _ in batch_data_label['point_clouds']]
+                num_reused_query_points[idx] += len(prev_detections)
+                num_reused_query_points_used[idx] += queries[:len(prev_detections)].sum()
+
+            print([a/b for a, b in zip(num_reused_query_points_used, num_reused_query_points)])
+
+            batches = []
+            for center_unnormalized_each, pred_sem_cls_each, objectness_probs_each in zip(center_unnormalized, pred_sem_cls, objectness_probs):
+                queries = center_unnormalized_each[(pred_sem_cls_each < dataset_config.num_semcls) & (objectness_probs_each > 0.05)] #TODO magic number
+                queries = queries.cpu()
+                batches.append(queries)
+            prev_detections = batches
 
             batch_pred_map_cls = parse_predictions(
                 predicted_box_corners,
@@ -314,62 +336,39 @@ def predict_only(
                 ap_config_dict,
             )
 
-            batches = []
-            for b in range(len(batch_pred_map_cls)):
-                queries = []
-                for j in range(min(args.nqueries, len(batch_pred_map_cls[b]))):
-                    velo_space = flip_axis_to_depth(batch_pred_map_cls[b][j][1])
-                    queries.append(torch.tensor(velo_space.mean(axis=0)))
-                batches.append(torch.stack(queries) if len(queries) > 0 else torch.zeros((0, 3)))
-            prev_detections = batches
-
             if local_idx == len(input_repeated) - 1:
                 #TODO don't use args value for dataset here. Maybe include in kitti getitem()?
                 calib = Calibration(os.path.join(args.dataset_root_dir, 'training', 'calib', f'{batch_data_label["scan_idx"][0].item():06d}.txt'))
 
                 batch_we_care_about_for_now = batch_pred_map_cls[0]
 
-                filepath = path.join(args.predict_output, f'{(batch_idx):06d}.txt')
+                filepath = path.join(args.predict_output, f'{(batch_data_label["scan_idx"][0].item()):06d}.txt')
                 print(filepath)
                 with open(filepath, 'w+') as out:
                     for predicted_object in batch_we_care_about_for_now:
                         sem_class, box_corners, confidence = predicted_object
                         box_corners = flip_axis_to_depth(box_corners) # Back to velo space we go
                         obb = convert_box_corners_into_obb(box_corners)
+
                         image_coords = np.array(calib.project_velo_to_image(box_corners)[0])
-                        xmin = np.min(image_coords[:, 0])
-                        ymin = np.min(image_coords[:, 1])
-                        xmax = np.max(image_coords[:, 0])
-                        ymax = np.max(image_coords[:, 1])
+                        xmin = max(0, np.min(image_coords[:, 0])) #TODO constrain these to image coords
+                        ymin = max(0, np.min(image_coords[:, 1]))
+                        xmax = min(1223, np.max(image_coords[:, 0]))
+                        ymax = min(369, np.max(image_coords[:, 1]))
 
                         type = dataset_config.class2type[sem_class]
-                        truncated = 0
-                        occluded = 0
-                        alpha = 0
+                        truncated = -1
+                        occluded = -1
+                        alpha = -1
                         coords_3d_pos = [obb[0], obb[1] - obb[4]/2, obb[2]] # I'm pretty sure KITTI uses the bottom-center of the box, but unsure
                         coords_3d_dimensions = obb[3:6]
                         coords_3d_ry = obb[6]
                         coords_2d = [xmin, ymax, xmax, ymin]
                         score = confidence
 
-                        out.write(' '.join([
-                            str(type), 
-                            str(truncated), 
-                            str(occluded), 
-                            str(alpha), 
-                            str(coords_3d_pos[0]), 
-                            str(coords_3d_pos[1]), 
-                            str(coords_3d_pos[2]), 
-                            str(coords_3d_dimensions[0]), 
-                            str(coords_3d_dimensions[1]), 
-                            str(coords_3d_dimensions[2]), 
-                            str(coords_3d_ry), 
-                            str(coords_2d[0]), 
-                            str(coords_2d[1]), 
-                            str(coords_2d[2]), 
-                            str(coords_2d[3]), 
-                            str(score),
-                        ]) + '\n')
+                        out.write(
+                            f'{type} {truncated} {occluded} {alpha} {coords_3d_pos[0]:.2f} {coords_3d_pos[1]:.2f} {coords_3d_pos[2]:.2f} {coords_3d_dimensions[0]:.2f} {coords_3d_dimensions[1]:.2f} {coords_3d_dimensions[2]:.2f} {coords_3d_ry:.2f} {coords_2d[0]:.2f} {coords_2d[1]:.2f} {coords_2d[2]:.2f} {coords_2d[3]:.2f} {score:.2f}\n'
+                        )
 
         barrier()
 
@@ -452,8 +451,18 @@ def render_only(
 
                 predicted_box_corners=outputs['outputs']["box_corners"]
                 sem_cls_probs=outputs['outputs']["sem_cls_prob"]
+                pred_sem_cls = torch.argmax(sem_cls_probs, dim=-1)
                 objectness_probs=outputs['outputs']["objectness_prob"]
+                center_unnormalized=outputs['outputs']['center_unnormalized']
                 point_cloud=batch_data_label["point_clouds"]
+
+                batches = []
+                for center_unnormalized_each, pred_sem_cls_each, objectness_probs_each in zip(center_unnormalized, pred_sem_cls, objectness_probs):
+                    queries = center_unnormalized_each[(pred_sem_cls_each < dataset_config.num_semcls) & (objectness_probs_each > 0.05)] #TODO magic number
+                    queries = queries.cpu()
+                    batches.append(queries)
+                last_prev_detections = [detections.numpy() for detections in prev_detections]
+                prev_detections = batches
 
                 batch_pred_map_cls = parse_predictions(
                     predicted_box_corners,
@@ -462,16 +471,6 @@ def render_only(
                     point_cloud,
                     ap_config_dict,
                 )
-
-                batches = []
-                for b in range(len(batch_pred_map_cls)):
-                    queries = []
-                    for j in range(min(args.nqueries, len(batch_pred_map_cls[b]))):
-                        velo_space = flip_axis_to_depth(batch_pred_map_cls[b][j][1])
-                        queries.append(torch.tensor(velo_space.mean(axis=0)))
-                    batches.append(torch.stack(queries) if len(queries) > 0 else torch.zeros((0, 3)))
-                last_prev_detections = [detections.numpy() for detections in prev_detections]
-                prev_detections = batches
 
                 point_cloud = point_cloud.cpu().detach().numpy()
                 query_xyz = query_xyz.cpu().detach().numpy()
@@ -500,7 +499,7 @@ def render_only(
                     #NOTE This code is copied from ap_calculator.step()
                     gt_box_corners = gt_box_corners.cpu().detach().numpy()
                     gt_box_sem_cls_labels = gt_box_sem_cls_labels.cpu().detach().numpy()
-                    gt_box_real = gt_box_sem_cls_labels != 0
+                    gt_box_real = gt_box_sem_cls_labels != dataset_config.num_semcls
                     gt_box_present = gt_box_present.cpu().detach().numpy()
 
                     renderer.draw_point_cloud(point_cloud[0])
@@ -545,8 +544,18 @@ def render_only(
 
             predicted_box_corners=outputs['outputs']["box_corners"]
             sem_cls_probs=outputs['outputs']["sem_cls_prob"]
+            pred_sem_cls = torch.argmax(sem_cls_probs, dim=-1)
             objectness_probs=outputs['outputs']["objectness_prob"]
+            center_unnormalized=outputs['outputs']['center_unnormalized']
             point_cloud=batch_data_label["point_clouds"]
+
+            batches = []
+            for center_unnormalized_each, pred_sem_cls_each, objectness_probs_each in zip(center_unnormalized, pred_sem_cls, objectness_probs):
+                queries = center_unnormalized_each[(pred_sem_cls_each < dataset_config.num_semcls) & (objectness_probs_each > 0.05)] #TODO magic number
+                queries = queries.cpu()
+                batches.append(queries)
+            last_prev_detections = [detections.numpy() for detections in prev_detections]
+            prev_detections = batches
 
             batch_pred_map_cls = parse_predictions(
                 predicted_box_corners,
@@ -556,16 +565,6 @@ def render_only(
                 ap_config_dict,
             )
 
-            batches = []
-            for b in range(len(batch_pred_map_cls)):
-                queries = []
-                for j in range(min(args.nqueries, len(batch_pred_map_cls[b]))):
-                    velo_space = flip_axis_to_depth(batch_pred_map_cls[b][j][1])
-                    queries.append(torch.tensor(velo_space.mean(axis=0)))
-                batches.append(torch.stack(queries) if len(queries) > 0 else torch.zeros((0, 3)))
-            last_prev_detections = [detections.numpy() for detections in prev_detections]
-            prev_detections = batches
-
             point_cloud = point_cloud.cpu().detach().numpy()
             query_xyz = query_xyz.cpu().detach().numpy()
 
@@ -573,7 +572,6 @@ def render_only(
             last_prev_detections = [flip_axis_to_camera_np(detections) for detections in last_prev_detections]
             query_xyz = np.stack([flip_axis_to_camera_np(queries) for queries in query_xyz])
 
-            
             renderer.draw_point_cloud(point_cloud[0])
             for query in query_xyz[0]:
                 renderer.draw_sphere(query, color=[0.2, 0.4, 0.2])
@@ -631,7 +629,7 @@ def render_only(
             #NOTE This code is copied from ap_calculator.step()
             gt_box_corners = gt_box_corners.cpu().detach().numpy()
             gt_box_sem_cls_labels = gt_box_sem_cls_labels.cpu().detach().numpy()
-            gt_box_real = gt_box_sem_cls_labels != 0
+            gt_box_real = gt_box_sem_cls_labels != dataset_config.num_semcls
             gt_box_present = gt_box_present.cpu().detach().numpy()
 
             renderer.draw_point_cloud(point_cloud[0])

@@ -21,6 +21,8 @@ def angle_between(v1, v2):
     return np.arccos(np.clip(np.dot(v1_u, v2_u), -1.0, 1.0))
 
 def convert_box_corners_into_obb(box3d_pts_3d):
+    box3d_pts_3d = box3d_pts_3d.copy()
+    
     v2 = box3d_pts_3d[1][:2]
     v1 = box3d_pts_3d[0][:2]
     angle = angle_between(v2 - v1, np.array([1, 0]))

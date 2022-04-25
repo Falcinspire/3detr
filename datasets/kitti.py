@@ -239,8 +239,10 @@ class KITTI3DObjectDetectionDataset(Dataset):
         bboxes = None
         point_cloud_video = None
 
+        number_id = idx
+
         if self.split_set in ["train", "train-clip", "val", "val-clip"]:
-            string_id, raw_mapping_id = self.ids[idx]
+            string_id, number_id = self.ids[idx]
             label_id = self.labels[idx]
             point_cloud = load_velo_scan(os.path.join(self.data_path, 'velodyne', f'{string_id}.bin'))[:, 0:3]
             calib = Calibration(os.path.join(self.data_path, 'calib', f'{string_id}.txt'))
@@ -265,8 +267,8 @@ class KITTI3DObjectDetectionDataset(Dataset):
 
             point_cloud_video = np.array([[[]]], dtype=np.float32)
             if self.split_set in ["train-clip", "val-clip"]:
-                calib_video = self.raw_mapper.load_calibration_from_video(raw_mapping_id)
-                point_cloud_video = self.raw_mapper.load_previous_velo_video_from_compressed(raw_mapping_id, clip_size=4)
+                calib_video = self.raw_mapper.load_calibration_from_video(number_id)
+                point_cloud_video = self.raw_mapper.load_previous_velo_video_from_compressed(number_id, clip_size=4)
                 point_cloud_video = np.stack([self._process_point_cloud(point_cloud_frame, calib_video) for point_cloud_frame in point_cloud_video])
         else:
             calib_video = self.raw_mapper.load_calibration_from_video_path(self.data_path_zip_calib)
@@ -411,7 +413,7 @@ class KITTI3DObjectDetectionDataset(Dataset):
         target_bboxes_semcls[0 : bboxes.shape[0]] = bboxes[:, -1]
         ret_dict["gt_box_sem_cls_label"] = target_bboxes_semcls.astype(np.int64)
         ret_dict["gt_box_present"] = target_bboxes_mask.astype(np.float32)
-        ret_dict["scan_idx"] = np.array(idx).astype(np.int64)
+        ret_dict["scan_idx"] = np.array(number_id).astype(np.int64)
         ret_dict["gt_box_sizes"] = raw_sizes.astype(np.float32)
         ret_dict["gt_box_sizes_normalized"] = box_sizes_normalized.astype(np.float32)
         ret_dict["gt_box_angles"] = raw_angles.astype(np.float32)
