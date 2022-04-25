@@ -394,7 +394,7 @@ def predict_model(args, model, model_no_ddp, criterion, dataset_config, dataload
         model,
         criterion,
         dataset_config,
-        dataloaders["train"],
+        dataloaders["test"],
         logger,
         curr_iter,
         args.predict_with_query_reuse,

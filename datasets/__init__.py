@@ -34,7 +34,12 @@ def build_dataset(args):
                 root_dir=args.dataset_root_dir, 
                 augment=False, 
             ),
-            "test": None,
+            "test": dataset_builder(
+                dataset_config, 
+                split_set="val-clip", 
+                root_dir=args.dataset_root_dir, 
+                augment=False, 
+            ),
         }
     else:
         dataset_dict = {

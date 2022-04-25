@@ -290,6 +290,7 @@ def predict_only(
             for i in range(len(batch_videos[0]['point_clouds_video']))
         ]
 
+        print('before')
         prev_detections = torch.zeros((batch_cnt, 0, 3))
         for local_idx, inputs in enumerate(input_repeated):
             # Do not run first 3 clips if query reuse is toggled off
@@ -370,7 +371,9 @@ def predict_only(
                             f'{type} {truncated} {occluded} {alpha} {coords_2d[0]:.2f} {coords_2d[1]:.2f} {coords_2d[2]:.2f} {coords_2d[3]:.2f} {coords_3d_dimensions[0]:.2f} {coords_3d_dimensions[1]:.2f} {coords_3d_dimensions[2]:.2f} {coords_3d_pos[0]:.2f} {coords_3d_pos[1]:.2f} {coords_3d_pos[2]:.2f} {coords_3d_ry:.2f} {score:.2f}\n'
                         )
 
-        barrier()
+        print('after')
+
+    barrier()
 
 @torch.no_grad()
 def render_only(
