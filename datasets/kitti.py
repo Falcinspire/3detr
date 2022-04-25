@@ -273,7 +273,7 @@ class KITTI3DObjectDetectionDataset(Dataset):
         else:
             calib_video = self.raw_mapper.load_calibration_from_video_path(self.data_path_zip_calib)
             point_cloud = self._process_point_cloud(
-                self.raw_mapper.load_velo(self.data_path_zip, f'{self.data_path_zip_local}/{idx:010d}.bin'),
+                self.raw_mapper.load_velo(self.data_path_zip, f'{self.data_path_zip_local}/{number_id:010d}.bin'),
                 calib_video,
             )
             bboxes = np.zeros((0, 8))
