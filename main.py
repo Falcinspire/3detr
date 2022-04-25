@@ -464,7 +464,9 @@ def main(local_rank, args):
     else:
         dataset_splits = ["train", "test"]
     for split in dataset_splits:
-        if split == "train" and not (args.render_only or args.predict_only): #TODO remove 2nd condition
+        if args.render_only or args.predict_only:
+            shuffle = False
+        elif split == "train":
             shuffle = True
         else:
             shuffle = False

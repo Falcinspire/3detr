@@ -13,7 +13,7 @@ import numpy as np
 from torch.distributed.distributed_c10d import reduce
 from datasets.kitti_util import Calibration
 from utils.ap_calculator import APCalculator, flip_axis_to_depth, get_ap_config_dict, parse_predictions
-from utils.axis_align_util import convert_box_corners_into_obb
+from utils.axis_align_util import convert_box_corners_into_obb, convert_box_corners_into_obb_y_upward
 from utils.box_util import flip_axis_to_camera_np
 from utils.misc import SmoothedValue
 from utils.dist import (
@@ -290,7 +290,6 @@ def predict_only(
             for i in range(len(batch_videos[0]['point_clouds_video']))
         ]
 
-        print('before')
         prev_detections = torch.zeros((batch_cnt, 0, 3))
         for local_idx, inputs in enumerate(input_repeated):
             # Do not run first 3 clips if query reuse is toggled off
@@ -349,7 +348,7 @@ def predict_only(
                     for predicted_object in batch_we_care_about_for_now:
                         sem_class, box_corners, confidence = predicted_object
                         box_corners = flip_axis_to_depth(box_corners) # Back to velo space we go
-                        obb = convert_box_corners_into_obb(calib.project_velo_to_rect(box_corners))
+                        obb = convert_box_corners_into_obb_y_upward(calib.project_velo_to_rect(box_corners)) #TODO this should be consistent with what happens in kitti.py
 
                         image_coords = np.array(calib.project_velo_to_image(box_corners)[0])
                         xmin = max(0, np.min(image_coords[:, 0])) #TODO constrain these to image coords
@@ -360,18 +359,21 @@ def predict_only(
                         type = dataset_config.class2type[sem_class]
                         truncated = -1
                         occluded = -1
-                        alpha = -1
-                        coords_3d_pos = [obb[0], obb[1], obb[2] - obb[5]/2] # I'm pretty sure KITTI uses the bottom-center of the box, but unsure
-                        coords_3d_dimensions = obb[3:6]
-                        coords_3d_ry = obb[6]
+                        alpha = -10
+
+                        #TODO This entire section was developed through guessing and trial and error
+                        # Benchmark uses bottom-center of box. In camera coords, -y is up.
+                        coords_3d_pos = [obb[0], obb[1] + obb[4], obb[2]]
+                        # height, width, length. *2 because obb func uses half-sizes
+                        coords_3d_dimensions = obb[[4,5,3]]*2.0
+                        # Must be negative because negative y is up
+                        coords_3d_ry = -obb[6]
                         coords_2d = [xmin, ymax, xmax, ymin]
                         score = confidence
 
                         out.write(
                             f'{type} {truncated} {occluded} {alpha} {coords_2d[0]:.2f} {coords_2d[1]:.2f} {coords_2d[2]:.2f} {coords_2d[3]:.2f} {coords_3d_dimensions[0]:.2f} {coords_3d_dimensions[1]:.2f} {coords_3d_dimensions[2]:.2f} {coords_3d_pos[0]:.2f} {coords_3d_pos[1]:.2f} {coords_3d_pos[2]:.2f} {coords_3d_ry:.2f} {score:.2f}\n'
                         )
-
-        print('after')
 
     barrier()
 
