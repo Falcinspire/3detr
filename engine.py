@@ -317,7 +317,7 @@ def predict_only(
                     num_reused_query_points = [0 for _ in batch_data_label['point_clouds']]
                     num_reused_query_points_used = [0 for _ in batch_data_label['point_clouds']]
                 num_reused_query_points[idx] += len(prev_detections)
-                num_reused_query_points_used[idx] += queries[:len(prev_detections)].sum()
+                num_reused_query_points_used[idx] += queries[:len(prev_detections)].sum().item()
 
             print([a/b for a, b in zip(num_reused_query_points_used, num_reused_query_points)])
 
@@ -348,7 +348,7 @@ def predict_only(
                     for predicted_object in batch_we_care_about_for_now:
                         sem_class, box_corners, confidence = predicted_object
                         box_corners = flip_axis_to_depth(box_corners) # Back to velo space we go
-                        obb = convert_box_corners_into_obb(box_corners)
+                        obb = convert_box_corners_into_obb(calib.project_velo_to_rect(box_corners))
 
                         image_coords = np.array(calib.project_velo_to_image(box_corners)[0])
                         xmin = max(0, np.min(image_coords[:, 0])) #TODO constrain these to image coords
@@ -360,14 +360,14 @@ def predict_only(
                         truncated = -1
                         occluded = -1
                         alpha = -1
-                        coords_3d_pos = [obb[0], obb[1] - obb[4]/2, obb[2]] # I'm pretty sure KITTI uses the bottom-center of the box, but unsure
+                        coords_3d_pos = [obb[0], obb[1], obb[2] - obb[5]/2] # I'm pretty sure KITTI uses the bottom-center of the box, but unsure
                         coords_3d_dimensions = obb[3:6]
                         coords_3d_ry = obb[6]
                         coords_2d = [xmin, ymax, xmax, ymin]
                         score = confidence
 
                         out.write(
-                            f'{type} {truncated} {occluded} {alpha} {coords_3d_pos[0]:.2f} {coords_3d_pos[1]:.2f} {coords_3d_pos[2]:.2f} {coords_3d_dimensions[0]:.2f} {coords_3d_dimensions[1]:.2f} {coords_3d_dimensions[2]:.2f} {coords_3d_ry:.2f} {coords_2d[0]:.2f} {coords_2d[1]:.2f} {coords_2d[2]:.2f} {coords_2d[3]:.2f} {score:.2f}\n'
+                            f'{type} {truncated} {occluded} {alpha} {coords_2d[0]:.2f} {coords_2d[1]:.2f} {coords_2d[2]:.2f} {coords_3d_dimensions[0]:.2f} {coords_3d_dimensions[1]:.2f} {coords_3d_dimensions[2]:.2f} {coords_2d[3]:.2f} {coords_3d_pos[0]:.2f} {coords_3d_pos[1]:.2f} {coords_3d_pos[2]:.2f} {coords_3d_ry:.2f} {score:.2f}\n'
                         )
 
         barrier()
