@@ -183,18 +183,16 @@ class KITTI3DObjectDetectionDataset(Dataset):
         self.data_path_video_calib = None
         if split_set in ["train", "train-clip", "val", "val-clip"]:
             self.data_path = os.path.join(root_dir, "training")
-            velodyne_files = os.listdir(os.path.join(self.data_path, 'velodyne'))
-            all_ids = [(f[:-len('.txt')], idx) for idx, f in enumerate(velodyne_files)]
+            velodyne_files = sorted(os.listdir(os.path.join(self.data_path, 'velodyne')))
+            all_ids = [f[:-len('.txt')] for f in velodyne_files]
             all_labels = [f[:-len('.txt')] for f in velodyne_files]
+
 
             x_train, x_validate, y_train, y_validate = train_test_split(all_ids, all_labels, test_size=0.25, random_state=612932)
             self.ids = x_train if split_set in ['train', 'train-clip'] else x_validate
             self.labels = y_train if split_set in ['train', 'train-clip'] else y_validate
 
             self.data_len = len(self.ids)
-
-            for a, b in zip(self.ids, self.labels):
-                assert a[0] == b
         else:
             self.data_path_video = os.path.join(root_dir, 'raw/2011_09_26/2011_09_26_drive_0001_sync/velodyne_points/data')
             self.data_path_video_calib = os.path.join(root_dir, 'raw/2011_09_26')
@@ -241,7 +239,7 @@ class KITTI3DObjectDetectionDataset(Dataset):
         number_id = idx
 
         if self.split_set in ["train", "train-clip", "val", "val-clip"]:
-            string_id, number_id = self.ids[idx]
+            string_id, number_id = self.ids[idx], int(self.ids[idx])
             label_id = self.labels[idx]
             point_cloud = load_velo_scan(os.path.join(self.data_path, 'velodyne', f'{string_id}.bin'))[:, 0:3]
             calib = Calibration(os.path.join(self.data_path, 'calib', f'{string_id}.txt'))
