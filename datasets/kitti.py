@@ -179,8 +179,8 @@ class KITTI3DObjectDetectionDataset(Dataset):
 
         self.data_len = 0
         self.data_path = None
-        self.data_path_zip = None
-        self.data_path_zip_local = None
+        self.data_path_video = None
+        self.data_path_video_calib = None
         if split_set in ["train", "train-clip", "val", "val-clip"]:
             self.data_path = os.path.join(root_dir, "training")
             velodyne_files = os.listdir(os.path.join(self.data_path, 'velodyne'))
@@ -196,10 +196,9 @@ class KITTI3DObjectDetectionDataset(Dataset):
             for a, b in zip(self.ids, self.labels):
                 assert a[0] == b
         else:
-            self.data_path_zip = os.path.join(root_dir, 'raw/2011_09_26/2011_09_26_drive_0001_sync.tar.gz')
-            self.data_path_zip_calib = os.path.join(root_dir, 'raw/2011_09_26')
-            self.data_path_zip_local = './velodyne_points/data'
-            self.data_len = self.raw_mapper.read_number_of_velo_files(self.data_path_zip)
+            self.data_path_video = os.path.join(root_dir, 'raw/2011_09_26/2011_09_26_drive_0002_sync/velodyne_points/data')
+            self.data_path_video_calib = os.path.join(root_dir, 'raw/2011_09_26')
+            self.data_len = len(os.listdir(self.data_path_video))
 
         self.num_points = num_points
         self.augment = augment
@@ -271,9 +270,10 @@ class KITTI3DObjectDetectionDataset(Dataset):
                 point_cloud_video = self.raw_mapper.load_previous_velo_video_from_compressed(number_id, clip_size=4)
                 point_cloud_video = np.stack([self._process_point_cloud(point_cloud_frame, calib_video) for point_cloud_frame in point_cloud_video])
         else:
-            calib_video = self.raw_mapper.load_calibration_from_video_path(self.data_path_zip_calib)
+            #TODO refactor imp details of kitti out of here and to raw_mapper
+            calib_video = self.raw_mapper.load_calibration_from_video_path(self.data_path_video_calib)
             point_cloud = self._process_point_cloud(
-                self.raw_mapper.load_velo(self.data_path_zip, f'{self.data_path_zip_local}/{number_id:010d}.bin'),
+                self.raw_mapper.load_velo(f'{self.data_path_video}/{number_id:010d}.bin.npz'),
                 calib_video,
             )
             bboxes = np.zeros((0, 8))

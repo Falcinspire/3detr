@@ -347,6 +347,7 @@ def predict_only(
                 with open(filepath, 'w+') as out:
                     for predicted_object in batch_we_care_about_for_now:
                         sem_class, box_corners, confidence = predicted_object
+                        if confidence < 0.05: continue
                         box_corners = flip_axis_to_depth(box_corners) # Back to velo space we go
                         obb = convert_box_corners_into_obb_y_upward(calib.project_velo_to_rect(box_corners)) #TODO this should be consistent with what happens in kitti.py
 
