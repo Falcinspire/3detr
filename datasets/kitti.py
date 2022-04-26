@@ -196,7 +196,7 @@ class KITTI3DObjectDetectionDataset(Dataset):
             for a, b in zip(self.ids, self.labels):
                 assert a[0] == b
         else:
-            self.data_path_video = os.path.join(root_dir, 'raw/2011_09_26/2011_09_26_drive_0002_sync/velodyne_points/data')
+            self.data_path_video = os.path.join(root_dir, 'raw/2011_09_26/2011_09_26_drive_0001_sync/velodyne_points/data')
             self.data_path_video_calib = os.path.join(root_dir, 'raw/2011_09_26')
             self.data_len = len(os.listdir(self.data_path_video))
 

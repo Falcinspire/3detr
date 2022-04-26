@@ -140,7 +140,7 @@ def make_args_parser():
 
     ##### Prediction Processing #####
     parser.add_argument("--predict_only", default=False, action="store_true")
-    parser.add_argument("--predict_with_query_reuse", default=True, action="store_true")
+    parser.add_argument("--predict_with_query_reuse", default=False, action="store_true")
     parser.add_argument("--predict_ckpt", default=None, type=str)
     parser.add_argument("--predict_output", default='predictions', type=str)
 

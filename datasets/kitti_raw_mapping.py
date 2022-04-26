@@ -20,7 +20,7 @@ class KittiRawMapping:
         velo_scans = []
         for path in paths:
             #see kitti_util.load_velo_scan
-            scan = np.fromfile(path, dtype=np.float32)['data']
+            scan = np.load(path)['data']
             scan = scan.reshape((-1, 4))[:, :3]
             velo_scans.append(scan)
         return velo_scans

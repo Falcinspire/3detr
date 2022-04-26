@@ -6,6 +6,7 @@ import math
 import time
 import sys
 import itertools
+import datetime
 import os
 from os import path
 import numpy as np
@@ -525,6 +526,8 @@ def render_only(
         prev_detections = None
         last_prev_detections = None
 
+        times = []
+
         for batch_idx, batch_data_label in enumerate(dataset_loader):
             curr_time = time.time()
 
@@ -542,6 +545,9 @@ def render_only(
                 "point_cloud_dims_min": batch_data_label["point_cloud_dims_min"],
                 "point_cloud_dims_max": batch_data_label["point_cloud_dims_max"],
             }
+
+            start_time = datetime.datetime.now()
+
             outputs, query_xyz = model(inputs, return_queries=True, prev_detections=prev_detections)
 
             # Memory intensive as it gathers point cloud GT tensor across all ranks
@@ -571,6 +577,9 @@ def render_only(
                 ap_config_dict,
             )
 
+            end_time = datetime.datetime.now()
+            times.append((end_time - start_time).total_seconds() * 1000)
+
             point_cloud = point_cloud.cpu().detach().numpy()
             query_xyz = query_xyz.cpu().detach().numpy()
 
@@ -589,6 +598,9 @@ def render_only(
             print(filepath)
             renderer.render_image(filepath)
             renderer.clear_scene()
+
+        print(f'Average time to process and generate boxes for a frame: {np.mean(times)}ms')
+        print(times)
     elif (args.render_kitti_dataset == 'kitti-frame'):
         for batch_idx, batch_data_label in enumerate(dataset_loader):
             curr_time = time.time()
