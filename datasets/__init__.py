@@ -30,13 +30,13 @@ def build_dataset(args):
         dataset_dict = {
             "train": dataset_builder(
                 dataset_config, 
-                split_set="train-clip", 
+                split_set="train-clip" if args.test_clip_with_query_reuse else "train", 
                 root_dir=args.dataset_root_dir, 
                 augment=False, 
             ),
             "test": dataset_builder(
                 dataset_config, 
-                split_set="val-clip", 
+                split_set="val-clip" if args.test_clip_with_query_reuse else "val", 
                 root_dir=args.dataset_root_dir, 
                 augment=False, 
             ),

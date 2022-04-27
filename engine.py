@@ -24,7 +24,7 @@ from utils.dist import (
     reduce_dict,
     barrier,
 )
-# from utils.open3d_renderer_util import Open3dInteractiveRendererUtil, Open3dOfflineRendererUtil
+from utils.open3d_renderer_util import Open3dInteractiveRendererUtil, Open3dOfflineRendererUtil
 
 
 def compute_learning_rate(args, curr_epoch_normalized):
@@ -392,43 +392,47 @@ def predict_only(
 
         batch_cnt = len(batch_data_label['point_clouds'])
 
-        batch_videos = [
-            {
-                "point_clouds_video": [clip for clip in point_cloud_prev_clips] + [point_clouds],
-                "point_cloud_dims_min_video": [clip for clip in point_cloud_prev_clips_dims_min] + [point_cloud_dims_min],
-                "point_cloud_dims_max_video": [clip for clip in point_cloud_prev_clips_dims_max] + [point_cloud_dims_max],
-            }
-            for (
-                point_cloud_prev_clips, 
-                point_clouds, 
-                point_cloud_prev_clips_dims_min, 
-                point_cloud_prev_clips_dims_max, 
-                point_cloud_dims_min, 
-                point_cloud_dims_max
-            ) in zip(
-                batch_data_label['point_cloud_prev_clips'], 
-                batch_data_label['point_clouds'],
-                batch_data_label['point_cloud_prev_clips_dims_min'],
-                batch_data_label['point_cloud_prev_clips_dims_max'],
-                batch_data_label['point_cloud_dims_min'],
-                batch_data_label['point_cloud_dims_max'],
-            )
-        ]
+        if predict_with_query_reuse:
+            batch_videos = [
+                {
+                    "point_clouds_video": [clip for clip in point_cloud_prev_clips] + [point_clouds],
+                    "point_cloud_dims_min_video": [clip for clip in point_cloud_prev_clips_dims_min] + [point_cloud_dims_min],
+                    "point_cloud_dims_max_video": [clip for clip in point_cloud_prev_clips_dims_max] + [point_cloud_dims_max],
+                }
+                for (
+                    point_cloud_prev_clips, 
+                    point_clouds, 
+                    point_cloud_prev_clips_dims_min, 
+                    point_cloud_prev_clips_dims_max, 
+                    point_cloud_dims_min, 
+                    point_cloud_dims_max
+                ) in zip(
+                    batch_data_label['point_cloud_prev_clips'], 
+                    batch_data_label['point_clouds'],
+                    batch_data_label['point_cloud_prev_clips_dims_min'],
+                    batch_data_label['point_cloud_prev_clips_dims_max'],
+                    batch_data_label['point_cloud_dims_min'],
+                    batch_data_label['point_cloud_dims_max'],
+                )
+            ]
 
-        input_repeated = [
-            {
-                "point_clouds": torch.stack([batch_videos[j]["point_clouds_video"][i] for j in range(batch_cnt)]),
-                "point_cloud_dims_min": torch.stack([batch_videos[j]["point_cloud_dims_min_video"][i] for j in range(batch_cnt)]),
-                "point_cloud_dims_max": torch.stack([batch_videos[j]["point_cloud_dims_max_video"][i] for j in range(batch_cnt)]),
-            }
-            for i in range(len(batch_videos[0]['point_clouds_video']))
-        ]
+            input_repeated = [
+                {
+                    "point_clouds": torch.stack([batch_videos[j]["point_clouds_video"][i] for j in range(batch_cnt)]),
+                    "point_cloud_dims_min": torch.stack([batch_videos[j]["point_cloud_dims_min_video"][i] for j in range(batch_cnt)]),
+                    "point_cloud_dims_max": torch.stack([batch_videos[j]["point_cloud_dims_max_video"][i] for j in range(batch_cnt)]),
+                }
+                for i in range(len(batch_videos[0]['point_clouds_video']))
+            ]
+        else:
+            input_repeated = [{
+                "point_clouds": batch_data_label["point_clouds"],
+                "point_cloud_dims_min": batch_data_label["point_cloud_dims_min"],
+                "point_cloud_dims_max": batch_data_label["point_cloud_dims_max"],
+            }]
 
         prev_detections = torch.zeros((batch_cnt, 0, 3))
         for local_idx, inputs in enumerate(input_repeated):
-            # Do not run first 3 clips if query reuse is toggled off
-            if (not predict_with_query_reuse) and (local_idx < len(input_repeated)-1): continue
-
             for key in inputs:
                 inputs[key] = inputs[key].to(net_device)
 
@@ -450,10 +454,10 @@ def predict_only(
                 if len(num_reused_query_points) == 0:
                     num_reused_query_points = [0 for _ in batch_data_label['point_clouds']]
                     num_reused_query_points_used = [0 for _ in batch_data_label['point_clouds']]
-                num_reused_query_points[idx] += len(prev_detections)
-                num_reused_query_points_used[idx] += queries[:len(prev_detections)].sum().item()
+                num_reused_query_points[idx] += len(prev_detections[idx])
+                num_reused_query_points_used[idx] += queries[:len(prev_detections[idx])].sum().item()
 
-            print([a/b for a, b in zip(num_reused_query_points_used, num_reused_query_points)])
+            print([(a/b) if b != 0 else 0 for a, b in zip(num_reused_query_points_used, num_reused_query_points)])
 
             batches = []
             for center_unnormalized_each, pred_sem_cls_each, objectness_probs_each in zip(center_unnormalized, pred_sem_cls, objectness_probs):
@@ -470,45 +474,44 @@ def predict_only(
                 ap_config_dict,
             )
 
-            if local_idx == len(input_repeated) - 1:
-                #TODO don't use args value for dataset here. Maybe include in kitti getitem()?
-                calib = Calibration(os.path.join(args.dataset_root_dir, 'training', 'calib', f'{batch_data_label["scan_idx"][0].item():06d}.txt'))
+        #TODO don't use args value for dataset here. Maybe include in kitti getitem()?
+        calib = Calibration(os.path.join(args.dataset_root_dir, 'training', 'calib', f'{batch_data_label["scan_idx"][0].item():06d}.txt'))
 
-                batch_we_care_about_for_now = batch_pred_map_cls[0]
+        batch_we_care_about_for_now = batch_pred_map_cls[0]
 
-                filepath = path.join(args.predict_output, f'{(batch_data_label["scan_idx"][0].item()):06d}.txt')
-                print(filepath)
-                with open(filepath, 'w+') as out:
-                    for predicted_object in batch_we_care_about_for_now:
-                        sem_class, box_corners, confidence = predicted_object
-                        if confidence < 0.05: continue
-                        box_corners = flip_axis_to_depth(box_corners) # Back to velo space we go
-                        obb = convert_box_corners_into_obb_y_upward(calib.project_velo_to_rect(box_corners)) #TODO this should be consistent with what happens in kitti.py
+        filepath = path.join(args.predict_output, f'{(batch_data_label["scan_idx"][0].item()):06d}.txt')
+        print(filepath)
+        with open(filepath, 'w+') as out:
+            for predicted_object in batch_we_care_about_for_now:
+                sem_class, box_corners, confidence = predicted_object
+                if confidence < 0.05: continue
+                box_corners = flip_axis_to_depth(box_corners) # Back to velo space we go
+                obb = convert_box_corners_into_obb_y_upward(calib.project_velo_to_rect(box_corners)) #TODO this should be consistent with what happens in kitti.py
 
-                        image_coords = np.array(calib.project_velo_to_image(box_corners)[0])
-                        xmin = max(0, np.min(image_coords[:, 0])) #TODO constrain these to image coords
-                        ymin = max(0, np.min(image_coords[:, 1]))
-                        xmax = min(1223, np.max(image_coords[:, 0]))
-                        ymax = min(369, np.max(image_coords[:, 1]))
+                image_coords = np.array(calib.project_velo_to_image(box_corners)[0])
+                xmin = max(0, np.min(image_coords[:, 0])) #TODO constrain these to image coords
+                ymin = max(0, np.min(image_coords[:, 1]))
+                xmax = min(1223, np.max(image_coords[:, 0]))
+                ymax = min(369, np.max(image_coords[:, 1]))
 
-                        type = dataset_config.class2type[sem_class]
-                        truncated = -1
-                        occluded = -1
-                        alpha = -10
+                type = dataset_config.class2type[sem_class]
+                truncated = -1
+                occluded = -1
+                alpha = -10
 
-                        #TODO This entire section was developed through guessing and trial and error
-                        # Benchmark uses bottom-center of box. In camera coords, -y is up.
-                        coords_3d_pos = [obb[0], obb[1] + obb[4], obb[2]]
-                        # height, width, length. *2 because obb func uses half-sizes
-                        coords_3d_dimensions = obb[[4,5,3]]*2.0
-                        # Must be negative because negative y is up
-                        coords_3d_ry = -obb[6]
-                        coords_2d = [xmin, ymax, xmax, ymin]
-                        score = confidence
+                #TODO This entire section was developed through guessing and trial and error
+                # Benchmark uses bottom-center of box. In camera coords, -y is up.
+                coords_3d_pos = [obb[0], obb[1] + obb[4], obb[2]]
+                # height, width, length. *2 because obb func uses half-sizes
+                coords_3d_dimensions = obb[[4,5,3]]*2.0
+                # Must be negative because negative y is up
+                coords_3d_ry = -obb[6]
+                coords_2d = [xmin, ymax, xmax, ymin]
+                score = confidence
 
-                        out.write(
-                            f'{type} {truncated} {occluded} {alpha} {coords_2d[0]:.2f} {coords_2d[1]:.2f} {coords_2d[2]:.2f} {coords_2d[3]:.2f} {coords_3d_dimensions[0]:.2f} {coords_3d_dimensions[1]:.2f} {coords_3d_dimensions[2]:.2f} {coords_3d_pos[0]:.2f} {coords_3d_pos[1]:.2f} {coords_3d_pos[2]:.2f} {coords_3d_ry:.2f} {score:.2f}\n'
-                        )
+                out.write(
+                    f'{type} {truncated} {occluded} {alpha} {coords_2d[0]:.2f} {coords_2d[1]:.2f} {coords_2d[2]:.2f} {coords_2d[3]:.2f} {coords_3d_dimensions[0]:.2f} {coords_3d_dimensions[1]:.2f} {coords_3d_dimensions[2]:.2f} {coords_3d_pos[0]:.2f} {coords_3d_pos[1]:.2f} {coords_3d_pos[2]:.2f} {coords_3d_ry:.2f} {score:.2f}\n'
+                )
 
     barrier()
 
@@ -534,7 +537,7 @@ def render_only(
         conf_thresh=0.05,
     )
 
-    # renderer = Open3dOfflineRendererUtil(1920, 1080)
+    renderer = Open3dOfflineRendererUtil(1920, 1080)
 
     model.eval()
     barrier()
@@ -669,9 +672,9 @@ def render_only(
             for key in batch_data_label:
                 batch_data_label[key] = batch_data_label[key].to(net_device)
 
-            # if prev_detections == None:
-            #     prev_detections = torch.zeros((batch_cnt, 0, 3))
-            #     last_prev_detections = torch.zeros((batch_cnt, 0, 3))
+            if prev_detections == None:
+                prev_detections = torch.zeros((batch_cnt, 0, 3))
+                last_prev_detections = torch.zeros((batch_cnt, 0, 3))
 
             inputs = {
                 "point_clouds": batch_data_label["point_clouds"],
@@ -682,57 +685,56 @@ def render_only(
             print(f'{batch_idx}/{len(dataset_loader)}')
             start_time = datetime.datetime.now()
 
-            outputs, query_xyz = model(inputs)
+            outputs, query_xyz = model(inputs, prev_detections=prev_detections, return_queries=True)
 
             end_time = datetime.datetime.now()
             times.append((end_time - start_time).total_seconds() * 1000)
 
-            # # Memory intensive as it gathers point cloud GT tensor across all ranks
-            # outputs["outputs"] = all_gather_dict(outputs["outputs"])
-            # inputs = all_gather_dict(inputs)
+            # Memory intensive as it gathers point cloud GT tensor across all ranks
+            outputs["outputs"] = all_gather_dict(outputs["outputs"])
+            inputs = all_gather_dict(inputs)
 
-            # predicted_box_corners=outputs['outputs']["box_corners"]
-            # sem_cls_probs=outputs['outputs']["sem_cls_prob"]
-            # pred_sem_cls = torch.argmax(sem_cls_probs, dim=-1)
-            # objectness_probs=outputs['outputs']["objectness_prob"]
-            # center_unnormalized=outputs['outputs']['center_unnormalized']
-            # point_cloud=batch_data_label["point_clouds"]
+            predicted_box_corners=outputs['outputs']["box_corners"]
+            sem_cls_probs=outputs['outputs']["sem_cls_prob"]
+            pred_sem_cls = torch.argmax(sem_cls_probs, dim=-1)
+            objectness_probs=outputs['outputs']["objectness_prob"]
+            center_unnormalized=outputs['outputs']['center_unnormalized']
+            point_cloud=batch_data_label["point_clouds"]
 
-            # batches = []
-            # for center_unnormalized_each, pred_sem_cls_each, objectness_probs_each in zip(center_unnormalized, pred_sem_cls, objectness_probs):
-            #     queries = center_unnormalized_each[(pred_sem_cls_each < dataset_config.num_semcls) & (objectness_probs_each > 0.05)] #TODO magic number
-            #     queries = queries.cpu()
-            #     batches.append(queries)
-            # last_prev_detections = [detections.numpy() for detections in prev_detections]
-            # prev_detections = batches
+            batches = []
+            for center_unnormalized_each, pred_sem_cls_each, objectness_probs_each in zip(center_unnormalized, pred_sem_cls, objectness_probs):
+                queries = center_unnormalized_each[(pred_sem_cls_each < dataset_config.num_semcls) & (objectness_probs_each > 0.05)] #TODO magic number
+                queries = queries.cpu()
+                batches.append(queries)
+            last_prev_detections = [detections.numpy() for detections in prev_detections]
+            prev_detections = batches
 
-            # batch_pred_map_cls = parse_predictions(
-            #     predicted_box_corners,
-            #     sem_cls_probs,
-            #     objectness_probs,
-            #     point_cloud,
-            #     ap_config_dict,
-            # )
+            batch_pred_map_cls = parse_predictions(
+                predicted_box_corners,
+                sem_cls_probs,
+                objectness_probs,
+                point_cloud,
+                ap_config_dict,
+            )
 
+            point_cloud = point_cloud.cpu().detach().numpy()
+            query_xyz = query_xyz.cpu().detach().numpy()
 
-            # point_cloud = point_cloud.cpu().detach().numpy()
-            # query_xyz = query_xyz.cpu().detach().numpy()
+            point_cloud = flip_axis_to_camera_np(point_cloud)
+            last_prev_detections = [flip_axis_to_camera_np(detections) for detections in last_prev_detections]
+            query_xyz = np.stack([flip_axis_to_camera_np(queries) for queries in query_xyz])
 
-            # point_cloud = flip_axis_to_camera_np(point_cloud)
-            # last_prev_detections = [flip_axis_to_camera_np(detections) for detections in last_prev_detections]
-            # query_xyz = np.stack([flip_axis_to_camera_np(queries) for queries in query_xyz])
-
-            # renderer.draw_point_cloud(point_cloud[0])
-            # for query in query_xyz[0]:
-            #     renderer.draw_sphere(query, color=[0.2, 0.4, 0.2])
-            # for idx, detection in enumerate(last_prev_detections[0]):
-            #     renderer.draw_sphere(detection, size=0.3, color=[1.0, 0.0, 0.0])
-            # for box in batch_pred_map_cls[0]:
-            #     renderer.draw_box(box[1])
-            # filepath = path.join(args.render_output, f'{batch_idx}.png')
-            # print(filepath)
-            # renderer.render_image(filepath)
-            # renderer.clear_scene()
+            renderer.draw_point_cloud(point_cloud[0])
+            for query in query_xyz[0]:
+                renderer.draw_sphere(query, color=[0.2, 0.4, 0.2])
+            for idx, detection in enumerate(last_prev_detections[0]):
+                renderer.draw_sphere(detection, size=0.3, color=[1.0, 0.0, 0.0])
+            for box in batch_pred_map_cls[0]:
+                renderer.draw_box(box[1])
+            filepath = path.join(args.render_output, f'{batch_idx}.png')
+            print(filepath)
+            renderer.render_image(filepath)
+            renderer.clear_scene()
 
         print(f'Average time to process and generate boxes for a frame: {np.mean(times)}ms')
         print(times)
@@ -789,7 +791,7 @@ def render_only(
             for gt_box in gt_box_corners[0][gt_box_real[0]]:
                 renderer.draw_box(gt_box, color=[0.0, 0.5, 0.0])
             for query in query_xyz[0]:
-                renderer.draw_sphere(query, color=[0.2, 0.4, 0.2])
+                renderer.draw_sphere(query, color=[0.1, 0.1, 0.2])
             for box in batch_pred_map_cls[0]:
                 renderer.draw_box(box[1])
             filepath = path.join(args.render_output, f'{batch_idx}.png')
