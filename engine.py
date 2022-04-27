@@ -24,7 +24,7 @@ from utils.dist import (
     reduce_dict,
     barrier,
 )
-from utils.open3d_renderer_util import Open3dInteractiveRendererUtil, Open3dOfflineRendererUtil
+# from utils.open3d_renderer_util import Open3dInteractiveRendererUtil, Open3dOfflineRendererUtil
 
 
 def compute_learning_rate(args, curr_epoch_normalized):
