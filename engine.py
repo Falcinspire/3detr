@@ -401,7 +401,7 @@ def render_only(
         conf_thresh=0.05,
     )
 
-    renderer = Open3dOfflineRendererUtil(1920, 1080)
+    # renderer = Open3dOfflineRendererUtil(1920, 1080)
 
     model.eval()
     barrier()
