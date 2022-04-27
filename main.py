@@ -12,7 +12,7 @@ from torch.utils.data import DataLoader, DistributedSampler
 
 # 3DETR codebase specific imports
 from datasets import build_dataset
-from engine import evaluate, train_one_epoch, render_only, predict_only
+from engine import evaluate, evaluate_clip, train_one_epoch, render_only, predict_only
 from models import build_model
 from optimizer import build_optimizer
 from criterion import build_criterion
@@ -131,6 +131,11 @@ def make_args_parser():
     ##### Testing #####
     parser.add_argument("--test_only", default=False, action="store_true")
     parser.add_argument("--test_ckpt", default=None, type=str)
+
+    ##### Testing Clip #####
+    parser.add_argument("--test_clip_only", default=False, action="store_true")
+    parser.add_argument("--test_clip_ckpt", default=None, type=str)
+    parser.add_argument("--test_clip_with_query_reuse", action="store_true")
 
     ##### Rendering Processing #####
     parser.add_argument("--render_only", default=False, action="store_true")
@@ -377,6 +382,35 @@ def test_model(args, model, model_no_ddp, criterion, dataset_config, dataloaders
         print(f"Test model; Metrics {metric_str}")
         print("==" * 10)
 
+def test_clip_model(args, model, model_no_ddp, criterion, dataset_config, dataloaders):
+    if args.test_clip_ckpt is None or not os.path.isfile(args.test_clip_ckpt):
+        f"Please specify a test clip checkpoint using --test_clip_ckpt. Found invalid value {args.test_clip_ckpt}"
+        sys.exit(1)
+
+    sd = torch.load(args.test_clip_ckpt, map_location=torch.device("cpu"))
+    model_no_ddp.load_state_dict(sd["model"])
+    logger = Logger()
+    criterion = None  # do not compute loss for speed-up; Comment out to see test loss
+    epoch = -1
+    curr_iter = 0
+    ap_calculator = evaluate_clip(
+        args,
+        epoch,
+        model,
+        criterion,
+        dataset_config,
+        dataloaders["test"],
+        logger,
+        curr_iter,
+        args.test_clip_with_query_reuse,
+    )
+    metrics = ap_calculator.compute_metrics()
+    metric_str = ap_calculator.metrics_to_str(metrics)
+    if is_primary():
+        print("==" * 10)
+        print(f"Test model; Metrics {metric_str}")
+        print("==" * 10)
+
 def predict_model(args, model, model_no_ddp, criterion, dataset_config, dataloaders):
     if args.predict_ckpt is None or not os.path.isfile(args.predict_ckpt):
         f"Please specify a prediction checkpoint using --predict_ckpt. Found invalid value {args.predict_ckpt}"
@@ -457,14 +491,16 @@ def main(local_rank, args):
     criterion = criterion.cuda(local_rank)
 
     dataloaders = {}
-    if args.test_only:
+    if args.test_clip_only:
+        dataset_splits = ["test"]
+    elif args.test_only:
         dataset_splits = ["test"]
     elif args.render_only:
         dataset_splits = ["train"]
     else:
         dataset_splits = ["train", "test"]
     for split in dataset_splits:
-        if args.render_only or args.predict_only:
+        if args.render_only or args.predict_only or args.test_clip_only:
             shuffle = False
         elif split == "train":
             shuffle = True
@@ -495,6 +531,9 @@ def main(local_rank, args):
     elif args.predict_only:
         criterion = None
         predict_model(args, model, model_no_ddp, criterion, dataset_config, dataloaders)
+    elif args.test_clip_only:
+        criterion = None
+        test_clip_model(args, model, model_no_ddp, criterion, dataset_config, dataloaders)
     else:
         assert (
             args.checkpoint_dir is not None
