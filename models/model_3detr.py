@@ -289,12 +289,6 @@ class Model3DETR(nn.Module):
                 center_unnormalized, size_unnormalized, angle_continuous
             )
 
-            #TODO make this less scuffed
-            bboxes_batch = torch.cat([center_unnormalized, size_unnormalized, angle_continuous.unsqueeze(-1)], axis=2).detach().cpu().numpy()
-            velo_box_corners = torch.tensor([
-                [self.dataset_config.my_compute_box_3d(bbox[0:3], bbox[3:6], bbox[6]) for bbox in bboxes]
-            for bboxes in bboxes_batch])
-
             # below are not used in computing loss (only for matching/mAP eval)
             # we compute them with no_grad() so that distributed training does not complain about unused variables
             with torch.no_grad():
@@ -316,7 +310,6 @@ class Model3DETR(nn.Module):
                 "objectness_prob": objectness_prob,
                 "sem_cls_prob": semcls_prob,
                 "box_corners": box_corners,
-                "velo_box_corners": velo_box_corners,
             }
             outputs.append(box_prediction)
 
