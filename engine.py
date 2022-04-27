@@ -536,9 +536,9 @@ def render_only(
             for key in batch_data_label:
                 batch_data_label[key] = batch_data_label[key].to(net_device)
 
-            if prev_detections == None:
-                prev_detections = torch.zeros((batch_cnt, 0, 3))
-                last_prev_detections = torch.zeros((batch_cnt, 0, 3))
+            # if prev_detections == None:
+            #     prev_detections = torch.zeros((batch_cnt, 0, 3))
+            #     last_prev_detections = torch.zeros((batch_cnt, 0, 3))
 
             inputs = {
                 "point_clouds": batch_data_label["point_clouds"],
@@ -549,37 +549,37 @@ def render_only(
             print(f'{batch_idx}/{len(dataset_loader)}')
             start_time = datetime.datetime.now()
 
-            outputs, query_xyz = model(inputs, return_queries=True, prev_detections=prev_detections)
+            outputs, query_xyz = model(inputs)
 
             end_time = datetime.datetime.now()
             times.append((end_time - start_time).total_seconds() * 1000)
             
-            # Memory intensive as it gathers point cloud GT tensor across all ranks
-            outputs["outputs"] = all_gather_dict(outputs["outputs"])
-            inputs = all_gather_dict(inputs)
+            # # Memory intensive as it gathers point cloud GT tensor across all ranks
+            # outputs["outputs"] = all_gather_dict(outputs["outputs"])
+            # inputs = all_gather_dict(inputs)
 
-            predicted_box_corners=outputs['outputs']["box_corners"]
-            sem_cls_probs=outputs['outputs']["sem_cls_prob"]
-            pred_sem_cls = torch.argmax(sem_cls_probs, dim=-1)
-            objectness_probs=outputs['outputs']["objectness_prob"]
-            center_unnormalized=outputs['outputs']['center_unnormalized']
-            point_cloud=batch_data_label["point_clouds"]
+            # predicted_box_corners=outputs['outputs']["box_corners"]
+            # sem_cls_probs=outputs['outputs']["sem_cls_prob"]
+            # pred_sem_cls = torch.argmax(sem_cls_probs, dim=-1)
+            # objectness_probs=outputs['outputs']["objectness_prob"]
+            # center_unnormalized=outputs['outputs']['center_unnormalized']
+            # point_cloud=batch_data_label["point_clouds"]
 
-            batches = []
-            for center_unnormalized_each, pred_sem_cls_each, objectness_probs_each in zip(center_unnormalized, pred_sem_cls, objectness_probs):
-                queries = center_unnormalized_each[(pred_sem_cls_each < dataset_config.num_semcls) & (objectness_probs_each > 0.05)] #TODO magic number
-                queries = queries.cpu()
-                batches.append(queries)
-            last_prev_detections = [detections.numpy() for detections in prev_detections]
-            prev_detections = batches
+            # batches = []
+            # for center_unnormalized_each, pred_sem_cls_each, objectness_probs_each in zip(center_unnormalized, pred_sem_cls, objectness_probs):
+            #     queries = center_unnormalized_each[(pred_sem_cls_each < dataset_config.num_semcls) & (objectness_probs_each > 0.05)] #TODO magic number
+            #     queries = queries.cpu()
+            #     batches.append(queries)
+            # last_prev_detections = [detections.numpy() for detections in prev_detections]
+            # prev_detections = batches
 
-            batch_pred_map_cls = parse_predictions(
-                predicted_box_corners,
-                sem_cls_probs,
-                objectness_probs,
-                point_cloud,
-                ap_config_dict,
-            )
+            # batch_pred_map_cls = parse_predictions(
+            #     predicted_box_corners,
+            #     sem_cls_probs,
+            #     objectness_probs,
+            #     point_cloud,
+            #     ap_config_dict,
+            # )
 
 
             # point_cloud = point_cloud.cpu().detach().numpy()
