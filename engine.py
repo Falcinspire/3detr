@@ -255,6 +255,8 @@ def evaluate_clip(
     barrier()
     epoch_str = f"[{curr_epoch}/{args.max_epoch}]" if curr_epoch > 0 else ""
 
+    num_reused_query_points = []
+    num_reused_query_points_used = []
 
     for batch_idx, batch_data_label in enumerate(dataset_loader):
         curr_time = time.time()
@@ -315,6 +317,16 @@ def evaluate_clip(
             pred_sem_cls = torch.argmax(sem_cls_probs, dim=-1)
             objectness_probs=outputs['outputs']["objectness_prob"]
             center_unnormalized=outputs['outputs']['center_unnormalized']
+
+            for idx, (center_unnormalized_each, pred_sem_cls_each, objectness_probs_each) in enumerate(zip(center_unnormalized, pred_sem_cls, objectness_probs)):
+                queries = (pred_sem_cls_each < dataset_config.num_semcls) & (objectness_probs_each > 0.05) #TODO magic number
+                if len(num_reused_query_points) == 0:
+                    num_reused_query_points = [0 for _ in batch_data_label['point_clouds']]
+                    num_reused_query_points_used = [0 for _ in batch_data_label['point_clouds']]
+                num_reused_query_points[idx] += len(prev_detections[idx])
+                num_reused_query_points_used[idx] += queries[:len(prev_detections[idx])].sum().item()
+
+            print([(a/b) if b != 0 else 0 for a, b in zip(num_reused_query_points_used, num_reused_query_points)])
 
             batches = []
             for center_unnormalized_each, pred_sem_cls_each, objectness_probs_each in zip(center_unnormalized, pred_sem_cls, objectness_probs):
