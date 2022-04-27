@@ -326,7 +326,7 @@ def evaluate_clip(
                 num_reused_query_points[idx] += len(prev_detections[idx])
                 num_reused_query_points_used[idx] += queries[:len(prev_detections[idx])].sum().item()
 
-            print([(a/b) if b != 0 else 0 for a, b in zip(num_reused_query_points_used, num_reused_query_points)])
+            print([(a, b, a/b if b != 0 else 0) for a, b in zip(num_reused_query_points_used, num_reused_query_points)])
 
             batches = []
             for center_unnormalized_each, pred_sem_cls_each, objectness_probs_each in zip(center_unnormalized, pred_sem_cls, objectness_probs):
