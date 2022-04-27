@@ -546,6 +546,7 @@ def render_only(
                 "point_cloud_dims_max": batch_data_label["point_cloud_dims_max"],
             }
 
+            print(f'{batch_idx}/{len(dataset_loader)}')
             start_time = datetime.datetime.now()
 
             outputs, query_xyz = model(inputs, return_queries=True, prev_detections=prev_detections)
@@ -580,24 +581,24 @@ def render_only(
             end_time = datetime.datetime.now()
             times.append((end_time - start_time).total_seconds() * 1000)
 
-            point_cloud = point_cloud.cpu().detach().numpy()
-            query_xyz = query_xyz.cpu().detach().numpy()
+            # point_cloud = point_cloud.cpu().detach().numpy()
+            # query_xyz = query_xyz.cpu().detach().numpy()
 
-            point_cloud = flip_axis_to_camera_np(point_cloud)
-            last_prev_detections = [flip_axis_to_camera_np(detections) for detections in last_prev_detections]
-            query_xyz = np.stack([flip_axis_to_camera_np(queries) for queries in query_xyz])
+            # point_cloud = flip_axis_to_camera_np(point_cloud)
+            # last_prev_detections = [flip_axis_to_camera_np(detections) for detections in last_prev_detections]
+            # query_xyz = np.stack([flip_axis_to_camera_np(queries) for queries in query_xyz])
 
-            renderer.draw_point_cloud(point_cloud[0])
-            for query in query_xyz[0]:
-                renderer.draw_sphere(query, color=[0.2, 0.4, 0.2])
-            for detection in last_prev_detections[0]:
-                renderer.draw_sphere(detection, size=0.3, color=[1.0, 0.0, 0.0])
-            for box in batch_pred_map_cls[0]:
-                renderer.draw_box(box[1])
-            filepath = path.join(args.render_output, f'{batch_idx}.png')
-            print(filepath)
-            renderer.render_image(filepath)
-            renderer.clear_scene()
+            # renderer.draw_point_cloud(point_cloud[0])
+            # for query in query_xyz[0]:
+            #     renderer.draw_sphere(query, color=[0.2, 0.4, 0.2])
+            # for idx, detection in enumerate(last_prev_detections[0]):
+            #     renderer.draw_sphere(detection, size=0.3, color=[1.0, 0.0, 0.0])
+            # for box in batch_pred_map_cls[0]:
+            #     renderer.draw_box(box[1])
+            # filepath = path.join(args.render_output, f'{batch_idx}.png')
+            # print(filepath)
+            # renderer.render_image(filepath)
+            # renderer.clear_scene()
 
         print(f'Average time to process and generate boxes for a frame: {np.mean(times)}ms')
         print(times)
