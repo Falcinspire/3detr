@@ -551,6 +551,9 @@ def render_only(
 
             outputs, query_xyz = model(inputs, return_queries=True, prev_detections=prev_detections)
 
+            end_time = datetime.datetime.now()
+            times.append((end_time - start_time).total_seconds() * 1000)
+            
             # Memory intensive as it gathers point cloud GT tensor across all ranks
             outputs["outputs"] = all_gather_dict(outputs["outputs"])
             inputs = all_gather_dict(inputs)
@@ -578,8 +581,6 @@ def render_only(
                 ap_config_dict,
             )
 
-            end_time = datetime.datetime.now()
-            times.append((end_time - start_time).total_seconds() * 1000)
 
             # point_cloud = point_cloud.cpu().detach().numpy()
             # query_xyz = query_xyz.cpu().detach().numpy()
