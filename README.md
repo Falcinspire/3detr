@@ -1,4 +1,5 @@
 # 3DETR: An End-to-End Transformer Model for 3D Object Detection
+# Forked & modified for class project
 
 PyTorch implementation and models for **3DETR**.
 
