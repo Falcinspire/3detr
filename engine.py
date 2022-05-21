@@ -489,6 +489,7 @@ def predict_only(
         #TODO don't use args value for dataset here. Maybe include in kitti getitem()?
         calib = Calibration(os.path.join(args.dataset_root_dir, 'training', 'calib', f'{batch_data_label["scan_idx"][0].item():06d}.txt'))
 
+        #TODO consider supporting batches?
         batch_we_care_about_for_now = batch_pred_map_cls[0]
 
         filepath = path.join(args.predict_output, f'{(batch_data_label["scan_idx"][0].item()):06d}.txt')
@@ -635,41 +636,43 @@ def render_only(
                 query_xyz = np.stack([flip_axis_to_camera_np(queries) for queries in query_xyz])
 
                 if local_idx < len(input_repeated) - 1:
-                    renderer.draw_point_cloud(point_cloud[0])
-                    for query in query_xyz[0]:
-                        renderer.draw_sphere(query, color=[0.2, 0.4, 0.2])
-                    for detection in last_prev_detections[0]:
-                        renderer.draw_sphere(detection, size=0.3, color=[1.0, 0.0, 0.0])
-                    for box in batch_pred_map_cls[0]:
-                        renderer.draw_box(box[1])
-                    filepath = path.join(args.render_output, f'{batch_idx}_{local_idx}.png')
-                    print(filepath)
-                    renderer.render_image(filepath)
-                    renderer.clear_scene()
+                    for i in range(len(point_cloud)):
+                        renderer.draw_point_cloud(point_cloud[i])
+                        for query in query_xyz[i]:
+                            renderer.draw_sphere(query, color=[0.2, 0.4, 0.2])
+                        for detection in last_prev_detections[i]:
+                            renderer.draw_sphere(detection, size=0.3, color=[1.0, 0.0, 0.0])
+                        for box in batch_pred_map_cls[i]:
+                            renderer.draw_box(box[1])
+                        filepath = path.join(args.render_output, f'{i}_{batch_idx}_{local_idx}.png')
+                        print(filepath)
+                        renderer.render_image(filepath)
+                        renderer.clear_scene()
                 else:
-                    gt_box_corners=batch_data_label["gt_box_corners"]
-                    gt_box_sem_cls_labels=batch_data_label["gt_box_sem_cls_label"]
-                    gt_box_present=batch_data_label["gt_box_present"]
+                    for i in range(len(point_cloud)):
+                        gt_box_corners=batch_data_label["gt_box_corners"]
+                        gt_box_sem_cls_labels=batch_data_label["gt_box_sem_cls_label"]
+                        gt_box_present=batch_data_label["gt_box_present"]
 
-                    #NOTE This code is copied from ap_calculator.step()
-                    gt_box_corners = gt_box_corners.cpu().detach().numpy()
-                    gt_box_sem_cls_labels = gt_box_sem_cls_labels.cpu().detach().numpy()
-                    gt_box_real = gt_box_sem_cls_labels != dataset_config.num_semcls
-                    gt_box_present = gt_box_present.cpu().detach().numpy()
+                        #NOTE This code is copied from ap_calculator.step()
+                        gt_box_corners = gt_box_corners.cpu().detach().numpy()
+                        gt_box_sem_cls_labels = gt_box_sem_cls_labels.cpu().detach().numpy()
+                        gt_box_real = gt_box_sem_cls_labels != dataset_config.num_semcls
+                        gt_box_present = gt_box_present.cpu().detach().numpy()
 
-                    renderer.draw_point_cloud(point_cloud[0])
-                    for gt_box in gt_box_corners[0][gt_box_real[0]]:
-                        renderer.draw_box(gt_box, color=[0.0, 0.5, 0.0])
-                    for query in query_xyz[0]:
-                        renderer.draw_sphere(query, color=[0.2, 0.4, 0.2])
-                    for detection in last_prev_detections[0]:
-                        renderer.draw_sphere(detection, size=0.3, color=[1.0, 0.0, 0.0])
-                    for box in batch_pred_map_cls[0]:
-                        renderer.draw_box(box[1])
-                    filepath = path.join(args.render_output, f'{batch_idx}_{local_idx}.png')
-                    print(filepath)
-                    renderer.render_image(filepath)
-                    renderer.clear_scene()
+                        renderer.draw_point_cloud(point_cloud[i])
+                        for gt_box in gt_box_corners[i][gt_box_real[i]]:
+                            renderer.draw_box(gt_box, color=[0.0, 0.5, 0.0])
+                        for query in query_xyz[i]:
+                            renderer.draw_sphere(query, color=[0.2, 0.4, 0.2])
+                        for detection in last_prev_detections[0]:
+                            renderer.draw_sphere(detection, size=0.3, color=[1.0, 0.0, 0.0])
+                        for box in batch_pred_map_cls[i]:
+                            renderer.draw_box(box[1])
+                        filepath = path.join(args.render_output, f'{i}_{batch_idx}_{local_idx}.png')
+                        print(filepath)
+                        renderer.render_image(filepath)
+                        renderer.clear_scene()
     elif (args.render_kitti_dataset == 'kitti-video'):
         prev_detections = None
         last_prev_detections = None
@@ -736,17 +739,18 @@ def render_only(
             last_prev_detections = [flip_axis_to_camera_np(detections) for detections in last_prev_detections]
             query_xyz = np.stack([flip_axis_to_camera_np(queries) for queries in query_xyz])
 
-            renderer.draw_point_cloud(point_cloud[0])
-            for query in query_xyz[0]:
-                renderer.draw_sphere(query, color=[0.2, 0.4, 0.2])
-            for idx, detection in enumerate(last_prev_detections[0]):
-                renderer.draw_sphere(detection, size=0.3, color=[1.0, 0.0, 0.0])
-            for box in batch_pred_map_cls[0]:
-                renderer.draw_box(box[1])
-            filepath = path.join(args.render_output, f'{batch_idx}.png')
-            print(filepath)
-            renderer.render_image(filepath)
-            renderer.clear_scene()
+            for i in range(len(point_cloud)):
+                renderer.draw_point_cloud(point_cloud[i])
+                for query in query_xyz[i]:
+                    renderer.draw_sphere(query, color=[0.2, 0.4, 0.2])
+                for idx, detection in enumerate(last_prev_detections[i]):
+                    renderer.draw_sphere(detection, size=0.3, color=[1.0, 0.0, 0.0])
+                for box in batch_pred_map_cls[i]:
+                    renderer.draw_box(box[1])
+                filepath = path.join(args.render_output, f'{i}_{batch_idx}.png')
+                print(filepath)
+                renderer.render_image(filepath)
+                renderer.clear_scene()
 
         print(f'Average time to process and generate boxes for a frame: {np.mean(times)}ms')
         print(times)
@@ -799,16 +803,17 @@ def render_only(
             gt_box_real = gt_box_sem_cls_labels != dataset_config.num_semcls
             gt_box_present = gt_box_present.cpu().detach().numpy()
 
-            renderer.draw_point_cloud(point_cloud[0])
-            for gt_box in gt_box_corners[0][gt_box_real[0]]:
-                renderer.draw_box(gt_box, color=[0.0, 0.5, 0.0])
-            for query in query_xyz[0]:
-                renderer.draw_sphere(query, color=[0.1, 0.1, 0.2])
-            for box in batch_pred_map_cls[0]:
-                renderer.draw_box(box[1])
-            filepath = path.join(args.render_output, f'{batch_idx}.png')
-            print(filepath)
-            renderer.render_image(filepath)
-            renderer.clear_scene()
+            for i in range(len(point_cloud)):
+                renderer.draw_point_cloud(point_cloud[i])
+                for gt_box in gt_box_corners[i][gt_box_real[i]]:
+                    renderer.draw_box(gt_box, color=[0.0, 0.5, 0.0])
+                for query in query_xyz[i]:
+                    renderer.draw_sphere(query, color=[0.1, 0.1, 0.2])
+                for box in batch_pred_map_cls[i]:
+                    renderer.draw_box(box[1])
+                filepath = path.join(args.render_output, f'{i}_{batch_idx}.png')
+                print(filepath)
+                renderer.render_image(filepath)
+                renderer.clear_scene()
 
         barrier()
